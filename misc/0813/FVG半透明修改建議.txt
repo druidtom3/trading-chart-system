@@ -1,0 +1,84 @@
+問題出在你的「用很多水平線去假裝一塊長方形」。當 FVG 變高時，你現在畫的線條數量（lineCount）不是跟「像素高度」等比例，而是用「價格高度」加上 5–20 的硬上限來算，結果就是：越高的 FVG，線與線之間空隙越大 → 露出更多背景 → 看起來更淡；越矮的 FVG，線更密 → 看起來更深。你在 script.js 的 drawFVGs/drawSingleFVG 目前就是這樣算的（height*3 再夾在 5~20 之間）
+，而 AreaRenderer 甚至是固定 20 條線，密度完全不隨高度變化
+。
+
+最小修改方案（保持 Lightweight Charts、但讓透明度視覺一致）
+核心原則：用像素高度決定線的數量，維持固定「覆蓋率」（例如 1px 線 + 1px 間距 ≈ 50% 覆蓋），這樣不論 FVG 多高，看起來都一樣深。
+
+1) 在 script.js 加一個工具函式（chart 建好後可用）
+js
+複製
+編輯
+// 取得 FVG 的像素高度
+getFvgPixelHeight(upper, lower) {
+  const ps = this.chart.priceScale('right');
+  const yTop = ps.priceToCoordinate(upper);
+  const yBot = ps.priceToCoordinate(lower);
+  if (yTop == null || yBot == null) return null; // 尚未完成初次布局時的保險
+  return Math.abs(yTop - yBot);
+}
+2) 替換 drawFVGs 內計算 lineCount 的區塊
+把這段（現在）：
+
+js
+複製
+編輯
+const height = upper - lower;
+// 這會造成視覺深淺不一
+const baseLineCount = Math.floor(height * 3);
+const lineCount = Math.min(Math.max(baseLineCount, 5), 20);
+const priceStep = height / lineCount;
+const fixedOpacity = 0.25;
+改成（像素感知版）：
+
+js
+複製
+編輯
+const height = upper - lower;
+const pxH = this.getFvgPixelHeight(upper, lower);
+
+// 固定覆蓋率：1px 線 + 1px gap => 大約 50% 覆蓋
+const lineWidthPx = 1;
+const gapPx = 1;
+const maxLines = 150;            // 安全上限，避免系列數過多
+const fallbackLines = 30;        // 布局尚未完成時的退路
+
+const lineCountPx = pxH ? Math.floor(pxH / (lineWidthPx + gapPx)) : fallbackLines;
+const lineCount = Math.max(1, Math.min(lineCountPx, maxLines));
+const priceStep = height / lineCount;
+
+const fixedOpacity = 0.25;       // 統一顏色透明度
+（你現在的老邏輯在這裡，可對照看看：height * 3 + 5–20 的夾限
+）
+
+3) drawSingleFVG 也做同樣替換
+你在播放模式的單一 FVG 也重複了相同做法（同樣有 5–20 的夾限）
+。用上面一樣的像素感知邏輯替換那段即可。
+
+4) 如果你有在用 AreaRenderer
+base_renderer.js 目前是「永遠 20 條線」
+，會同樣造成高 FVG 變淡、矮 FVG 變深。改法一樣：在 render() 內用 priceScale().priceToCoordinate() 先算像素高，再把 const lineCount = 20; 換成基於像素的行數（同上公式）。
+
+小提示：AreaRenderer 的環境裡只有 chart，可用 this.chart.priceScale('right').priceToCoordinate(price) 取得 y 像素。
+
+為什麼這招有效？
+你原本是用價格高度決定「幾條線」，但畫面上看起來深淺其實取決於像素裡被顏色覆蓋的比例。當我們用像素高度來決定線的數量，而且讓「線寬:間距」固定，覆蓋率就固定，FVG 無論高矮視覺深淺一致。透明度 fixedOpacity 也就真正「統一」。
+
+若你要更「乾淨」的矩形（無 1px 條紋感）
+上述方法已把深淺一致問題解決。如果你想完全沒有條紋、純粹一塊半透明色塊，有兩個進一步選項：
+
+Overlay Canvas：在圖上加一層絕對定位 <canvas>，用 timeScale().timeToCoordinate() + priceScale().priceToCoordinate() 把時間與價格轉為 (x,y) 再 ctx.globalAlpha 畫 fillRect。需要在縮放/捲動事件時重繪，但透明度最精準、成本最低（單一矩形）。
+
+自訂 Series / Primitives：用 Lightweight Charts 的自訂繪製能力（若你升級並引入 primitives），直接畫矩形。這需要升級依賴與額外樣板，但也能達到純色塊效果。
+
+你可以先套用的兩個最關鍵改動位置
+script.js → drawFVGs：把 5–20 條線的計算換成「像素感知」版（上面第 2 步）。原本問題段落在這裡
+。
+
+script.js → drawSingleFVG：同理替換這裡的行數計算
+。
+
+（若用）base_renderer.js → AreaRenderer.render：把 const lineCount = 20; 改為像素感知版
+。
+
+改完後，FVG 不論高度，都會用同一個半透明顏色呈現、視覺深淺一致。如果你要，我也可以幫你把上述片段直接整合成完整可貼的替換版。

@@ -1,0 +1,76 @@
+漏檢」的主因其實有兩個：
+(1) 後端 FVGDetector 預設啟用「方向連續」而你圈的幾段中 L 與 C 不同色，被直接略過；
+(2) 你目前後端版本仍含「多根累積回補」分支，會把還應該存在的 FVG 當成已回補或讓回補判定不一致。
+另外前端把矩形最長只延伸 20 根，也會讓看起來像「沒畫到」。下面給你最小修改集（可直接貼），對應到每個檔案該改哪：
+
+1) 後端偵測條件過嚴 → 讓「方向連續」可關、壽命改成 40
+你現在 FVGDetector.__init__ 預設 max_age=200, require_dir_continuity=True（這會濾掉不少三根 FVG）。
+
+同時 detect() 內確實在檢查 L、C 同色，導致漏檢。
+
+改法 A：調整偵測器預設值（後端一勞永逸）
+把 backend/fvg_detector.py 的 __init__ 改成（壽命 40、方向連續預設關閉）：
+
+python
+複製
+編輯
+# fvg_detector.py
+def __init__(self, max_age: int = 40, require_dir_continuity: bool = False):
+    self.max_age = max_age
+    self.require_dir_continuity = require_dir_continuity
+這樣三根結構若成立就先標（你後來也決定不再要求 1.5× 推進），要更嚴再把參數打開即可。
+
+改法 B：僅在資料流程處把參數設好
+data_processor.py 目前是用預設建構：self.fvg_detector = FVGDetector()，請改成傳參數（壽命 40 / 關方向連續）：
+
+python
+複製
+編輯
+# data_processor.py
+self.fvg_detector = FVGDetector(max_age=40, require_dir_continuity=False)
+2) 回補判定只採「單根實體完全覆蓋」，移除累積回補
+你的某份 fvg_detector.py 版本仍含「多根累積回補」的註解與邏輯（易造成該顯示的綠 FVG被提早當成回補、或標示殘留不一致）。
+
+請把 _check_fill_and_expire()（或等價的後處理段落）替換為單根實體規則（只要一根 K 線的實體區間 [open, close] 完整覆蓋 FVG [bot, top] 就算填補；影線不算）。你也有另一份檔是正確單根版，可直接採用：
+
+python
+複製
+編輯
+# 只保留單根實體回補 + 壽命檢查
+for fvg in fvgs:
+    fvg.update(filled=False, expired=False)
+    s = fvg["idx"]
+    upper = max(fvg["top"], fvg["bot"])
+    lower = min(fvg["top"], fvg["bot"])
+    last = min(len(df) - 1, s + self.max_age)
+
+    for j in range(s, last + 1):
+        row = df.iloc[j]
+        body_high = max(row["Open"], row["Close"])
+        body_low  = min(row["Open"], row["Close"])
+        if body_low <= lower and body_high >= upper:  # 實體完全覆蓋
+            fvg["filled"] = True
+            break
+
+    if not fvg["filled"] and last == s + self.max_age:
+        fvg["expired"] = True
+3) 跳空只產生一個 FVG →（可選）加一個簡易去重
+你有多份偵測器檔案版本；有的沒有後處理去重，跳空與三根可能重複輸出同一層級。建議在偵測完成後加個 IoU 去重（同向、IoU≥0.75 視為重複，保留 origin="gap" 優先）—這段你之前已看過，我這裡不重貼程式。只要在 detect() 將 fvgs = self._dedupe_merge(fvgs) 放在回補檢查之前即可（避免「重複影格」被錯誤判定回補）。位置參考：回補檢查前的地方。
+
+4) 前端矩形延伸太短，容易看起來「沒畫到」
+前端 drawSingleFVG 以 maxExtendBars = 20 限制矩形延伸長度；當後端壽命是 40，前端就可能提前截斷，看上去像「沒標」或「消失」。把它調到 40（或跟後端同步）：
+
+js
+複製
+編輯
+// script.js -> drawSingleFVG 裡面
+const maxExtendBars = 40;  // 與後端 max_age 對齊
+若你打算讓壽命可配置，建議把 maxExtendBars 改成讀後端回傳欄位（例如 fvg.max_age 或直接用 fvg.expired 控制右邊界）。
+
+為什麼這些修改能修掉你圈的三處
+漏檢：主要是 require_dir_continuity 把 L、C 不同色的結構擋掉了（三張圖左側/右側藍圈情境）。把它關閉或在 UI 變成選項即可恢復輸出。
+
+「應該已回補卻仍顯示」：來自累積回補/回補時機不一致，把回補改成單根實體完全覆蓋即可統一行為。
+
+看起來沒畫或少一段：前端延伸 20 根與後端壽命 40 不一致，延長即可。
+

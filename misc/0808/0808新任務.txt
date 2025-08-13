@@ -1,0 +1,166 @@
+角色與目標
+你是資深交易圖表前端工程師 + UX 設計師。請為「MNQ 盤前標註與主動學習系統」產生完整、可執行的 GUI 介面與程式碼（預設：React + TypeScript + Vite + Lightweight Charts 或等效替代；後端 API 可先以 mock/本地 JSON 模擬，並保留抽換點）。UI 語系採繁體中文。
+
+背景與設計原因（為什麼要這樣做）
+這個系統要建立「黃金樣本庫」，讓人工先挑出代表性樣本，用自然語言說明判斷依據，再轉成結構化 JSON儲存，供日後訓練（主模型非 LLM；以 LightGBM / CatBoost / TCN 等數值/時序模型為主）。
+
+多時間框架（七 TF）是交易決策的核心。每一筆標註必須歸屬建立當下的時間刻度，同時允許「跨分頁投影顯示」以便肉眼對照，但資料歸屬不改。
+
+我們要確認/鎖定流程、評分與權重、主動學習提案迴圈；且「模型提案的樣本權重永遠不能高於人工親標」，確保風格來源是人。
+
+整體資訊架構
+七個時間刻度分頁：M1 / M5 / M15 / H1 / H4 / D1 / W1。
+
+視圖區間：預設顯示 20:30→23:00；提供按鈕可延伸至 04:00（夏令時間）。
+
+左側：主圖表（可切 TF 分頁，支援游標時間同步、捲動縮放、價位 0.25 tick 對齊）。
+
+右側：標註面板（見下方）＋ 底部：樣本導覽/匯出。
+
+主動學習提案面板：列出模型推薦的待標樣本（顯示不確定度、相似度、理由），可一鍵「提升為親標」。
+
+標註規則（關鍵）
+標註歸屬於當下分頁 TF：
+
+例如在 D1 畫的支撐/壓力，資料寫入 tframes.D1.sr_levels。
+
+可勾選「投影到其他 TF」只影響顯示，不改資料歸屬。
+
+概念工具（都要記錄建立時的 TF）：
+
+S/R 水平線（可命名，可投影到其他 TF）
+
+FVG 缺口（框出 {start_price, end_price}）
+
+AB=CD（四點工具；容忍誤差 = 13 pt；自動計 within_tolerance）
+
+0/50/100（可綁同 TF 的 AB=CD；若無，允許「手選兩點」作為參考段）
+
+Confirmation = 下單點（含 tf/time/price/side/type，並連動風險/出場）
+
+內建類型：wick_pressure（多下影線/上影線壓力，需記統計視窗與計數）、
+break_reclaim_retest（破底翻/收復再回測，需記 range_low/high 與 3 個時間點）、
+以及通用：BOS、CHOCH、FVG_fill、OB_touch、Manual。
+
+風險/出場：invalidation(SL) 一價必填；partial TP[] 各價與部位比例（0–1），比例和可 ≤1（允許留尾倉）。
+
+TF 權重（0–1）：每樣本可設定七 TF 的主觀重要度；提供兩組模板（Bias/Entry）並可手動覆寫。
+
+標籤與評分：good / bad / idk + 星等 1–5（可重複評；系統保留歷史並計算平均/時間衰減）。
+
+Confirm & Lock：
+
+確定前可隨時修改（自動儲存＋版本快照）；
+
+確定後狀態變 confirmed，唯讀；需修改時按 Reopen for Edit 並填 reason（審計 log）。
+
+右側標註面板（UI 細節）
+樣本資訊：日期、視圖區間（20:30→23:00 / →04:00）、當前 TF、是否已展開到 04:00。
+
+概念區塊（依勾選顯示表單＋圖上工具）：S/R、FVG、AB=CD、0/50/100、Confirmation、SL/TP。
+
+自然語言輸入框 +「解析」：保留原文；顯示解析後的可編輯表單與同步 JSON 草稿。
+
+TF 權重：七個滑桿（0–1），附一鍵套用模板。
+
+結果：good/bad/idk + 星等 1–5。
+
+按鈕列：儲存、Confirm & Lock、Reopen for Edit（需理由）。
+
+事件日誌：揭示到 23:00 / 04:00、加/改標註、Confirm/Reopen 等皆落檔。
+
+主動學習（模型提案）介面
+顯示候選卡片：縮圖、日期、理由（不確定度、與黃金樣本相似度、代表性）、快速操作：標註、評分、提升為親標。
+
+權重限制：model_suggest 的樣本在訓練權重上限不得超過 human_seed/human_promoted；若你點「提升為親標」，才提高上限。
+
+鍵盤快捷鍵（範例）
+1..5=星等；G/B/K=good/bad/idk；T=開/關 LTF 視窗；F/S/A/C=FVG/SR/ABCD/0-50-100；I=SL；P=Partial TP；V=展至23:00；X=展至04:00；Ctrl+S=儲存；Alt+N=下一筆。
+
+資料契約（請以此為準）
+單檔 JSON（每樣本一檔），欄位最少包含：
+
+json
+複製
+{
+  "sample_id": "YYYY-MM-DD",
+  "tz": "Asia/Taipei",
+  "status": {"state":"draft|confirmed|reopened","confirmed_at":null,"reopen_reason":null},
+  "source": {"type":"human_seed|model_suggest|human_promoted","proposed_by":null,"propose_meta":null},
+  "tf_weights": {"M1":0.9,"M5":1.0,"M15":0.7,"H1":0.5,"H4":0.4,"D1":0.6,"W1":0.3},
+  "ranges": {
+    "preopen": ["...20:30:00+08:00","...21:00:00+08:00"],
+    "entry":   ["...21:00:00+08:00","...23:00:00+08:00"],
+    "exit_deadline": "...04:00:00+08:00",
+    "revealed_to_23": true,
+    "revealed_to_04": true
+  },
+  "tframes": {
+    "D1": { "sr_levels":[{"id":"sr_D1_x","price":17560.00,"label":"D1-壓力","project_to_all":true}], "fvg":[], "abcd":[], "zero_fifty_hundred":[], "confirmations":[], "notes":"" },
+    "H4": {...}, "H1": {...}, "M15": {...},
+    "M5":  { "sr_levels":[], "fvg":[{"id":"fvg_M5_1","start_price":17520.25,"end_price":17536.50}],
+             "abcd":[{"id":"abcd_M5_1","A":17490.00,"B":17580.00,"C":17530.00,"D":17620.00,"tolerance_pt":13.0,"within_tolerance":true}],
+             "zero_fifty_hundred":[{"reference":"abcd_M5_1","touch_50":true,"notes":"回到 50%"}],
+             "confirmations":[], "notes":"" },
+    "M1":  { "sr_levels":[], "fvg":[], "abcd":[], "zero_fifty_hundred":[],
+             "confirmations":[
+               {"id":"c_M1_1","time":"...21:12:00+08:00","price":17585.50,"side":"long",
+                "type":"wick_pressure","wick_pressure":{"direction":"buy","window_bars":15,"lower_wick_count":9},
+                "risk":{"invalidation":{"price":17488.00,"reason":"前低下2pt"},"partial_tp":[{"price":17600.00,"fraction":0.33}]},
+                "links":{"abcd_id":"abcd_M5_1","sr_ids":["sr_D1_x"],"fvg_ids":["fvg_M5_1"]},
+                "note":"M1 下單點"}
+             ],
+             "notes":"" },
+    "W1": {...}
+  },
+  "ratings": {
+    "history":[{"at":"ISO","rater":"you","label":"good","score":5,"note":"說明..."}],
+    "aggregate":{"count":1,"mean":5,"std":0,"decayed_mean":5}
+  },
+  "train_weight": {
+    "w_source_cap": 1.0,     // human_seed/human_promoted=1.0, model_suggest<=0.6
+    "w_rating": 1.0,         // 由評分映射
+    "w_tf": 0.86,            // 由 tf_weights 得出（平均/加權中位）
+    "final": 0.86
+  },
+  "label":"good",
+  "notes_raw":"自然語言原文",
+  "parser_meta":{"model":"(可留白)","version":"(可留白)","schema":"v0.8"},
+  "meta":{"created_at":"ISO","annotator":"you","version":"0.8.0"}
+}
+所有價位一律四捨五入到 0.25；時間使用 ISO8601 +08:00。
+
+提供匯出 JSON/JSONL、匯入、事件日誌（揭示/編修/Confirm/Reopen）。
+
+UX 細節與品質條件
+任何圖上操作不用即時回寫到表單與 JSON 草稿；Confirm 前可自由修改。
+
+有未儲存提示、Schema 驗證錯誤高亮、撤銷/重作。
+
+圖表互動流暢（建議 60fps 目標），大量水平線/區間渲染不掉幀。
+
+熱鍵提示面板、工具滑鼠提示、中英文數字混輸支援。
+
+以模組化方式實作圖上工具（S/R、FVG、ABCD、0/50/100、Confirmation、SL/TP），便於日後擴充。
+
+交付物
+可執行專案（含 README：啟動/建置、mock 數據、JSON Schema 位置）。
+
+JSON Schema 檔（schema/v0.8.json）。
+
+模擬 API 或本地檔案存取層，並保留未來串接真實後端（/samples、/annotations、/export）的抽換接口。
+
+自動化測試（基本互動測試 & Schema 驗證）。
+
+驗收條件（DoD）
+七 TF 分頁正確；所有標註寫入當前 TF，S/R 可投影顯示。
+
+0.25 tick 對齊、AB=CD 容忍 13pt、自動計 within_tolerance。
+
+Confirmation 能串接 SL 與 partial TP；支持你的兩大判斷法（wick_pressure、break_reclaim_retest）。
+
+Confirm & Lock / Reopen 流程與審計 log 完整可用。
+
+匯出 JSON 與示例一致；支援 JSONL。
+
+主動學習提案面板可運作，且模型提案樣本權重上限受控。

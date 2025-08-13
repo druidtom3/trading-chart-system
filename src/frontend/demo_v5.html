@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FVG 性能改進演示</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .demo-controls {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            width: 280px;
+        }
+        
+        .demo-controls h4 {
+            margin: 0 0 15px 0;
+            color: #333;
+            text-align: center;
+        }
+        
+        .control-group {
+            margin: 10px 0;
+        }
+        
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        
+        .performance-display {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: rgba(0,0,0,0.85);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 14px;
+            min-width: 280px;
+        }
+        
+        .performance-display h5 {
+            margin: 0 0 10px 0;
+            text-align: center;
+            color: #4CAF50;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+        }
+        
+        .improvement {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 5px;
+            margin: 10px 0;
+        }
+        
+        .btn-group .btn {
+            flex: 1;
+            padding: 8px;
+            font-size: 12px;
+        }
+        
+        .mode-indicator {
+            text-align: center;
+            padding: 8px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .mode-optimized {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border: 2px solid #4caf50;
+        }
+        
+        .mode-legacy {
+            background: #fff3e0;
+            color: #f57c00;
+            border: 2px solid #ff9800;
+        }
+    </style>
+</head>
+<body>
+    <!-- 演示控制面板 -->
+    <div class="demo-controls">
+        <h4>FVG 性能演示</h4>
+        
+        <div class="mode-indicator" id="mode-indicator">
+            當前模式: 載入中...
+        </div>
+        
+        <div class="control-group">
+            <label>FVG 數量 (測試用):</label>
+            <select id="fvg-count-select">
+                <option value="10">10 個 FVG</option>
+                <option value="25">25 個 FVG</option>
+                <option value="50" selected>50 個 FVG</option>
+                <option value="100">100 個 FVG</option>
+                <option value="200">200 個 FVG</option>
+            </select>
+        </div>
+        
+        <div class="btn-group">
+            <button id="generate-fvg" class="btn btn-primary">生成測試 FVG</button>
+            <button id="clear-fvg" class="btn btn-secondary">清除 FVG</button>
+        </div>
+        
+        <div class="btn-group">
+            <button id="performance-test" class="btn btn-info">性能測試</button>
+            <button id="toggle-mode" class="btn btn-warning">切換模式</button>
+        </div>
+    </div>
+
+    <!-- 性能統計顯示 -->
+    <div class="performance-display">
+        <h5>性能統計</h5>
+        <div class="metric">
+            <span>渲染模式:</span>
+            <span id="render-mode">--</span>
+        </div>
+        <div class="metric">
+            <span>FVG 數量:</span>
+            <span id="fvg-count">0</span>
+        </div>
+        <div class="metric">
+            <span>系列數量:</span>
+            <span id="series-count">0</span>
+        </div>
+        <div class="metric">
+            <span>最後測試耗時:</span>
+            <span id="last-test-time">--</span>
+        </div>
+        <div class="metric">
+            <span>估計記憶體:</span>
+            <span id="memory-estimate">--</span>
+        </div>
+        <div class="metric">
+            <span>性能提升:</span>
+            <span id="performance-gain" class="improvement">--</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 頂部控制面板 -->
+        <div class="control-panel">
+            <div class="info-section">
+                <h1>FVG 性能改進演示</h1>
+                <div class="date-info">
+                    <span>展示像素感知 FVG 渲染的性能提升</span>
+                </div>
+            </div>
+            
+            <div class="controls">
+                <div class="action-buttons">
+                    <button id="refresh-btn" class="btn btn-primary">載入隨機資料</button>
+                    <button id="reset-zoom-btn" class="btn btn-secondary">重置縮放</button>
+                    <button id="fvg-toggle-btn" class="btn btn-toggle active">FVG 開</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 圖表容器 -->
+        <div class="chart-container">
+            <div id="chart"></div>
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>正在載入圖表資料...</p>
+            </div>
+        </div>
+        
+        <!-- 狀態列 -->
+        <div class="status-bar">
+            <div class="status-info">
+                <span>演示說明: 切換模式對比新舊 FVG 渲染性能差異</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+        // FVG 性能演示應用
+        class FVGPerformanceDemo {
+            constructor() {
+                this.chart = null;
+                this.candlestickSeries = null;
+                this.fvgSeries = [];
+                this.testFVGs = [];
+                this.useOptimizedMode = false;
+                this.lastTestTime = 0;
+                
+                this.init();
+            }
+
+            init() {
+                this.createChart();
+                this.bindEvents();
+                this.updateModeIndicator();
+                this.generateSampleData();
+            }
+
+            createChart() {
+                const chartContainer = document.getElementById('chart');
+                
+                this.chart = LightweightCharts.createChart(chartContainer, {
+                    width: chartContainer.clientWidth,
+                    height: chartContainer.clientHeight,
+                    layout: {
+                        background: { type: 'solid', color: '#ffffff' },
+                        textColor: '#333333',
+                    },
+                    grid: {
+                        vertLines: { color: '#f0f0f0' },
+                        horzLines: { color: '#f0f0f0' },
+                    },
+                    rightPriceScale: {
+                        autoScale: true,
+                    },
+                    timeScale: {
+                        rightOffset: 20,
+                    },
+                });
+
+                this.candlestickSeries = this.chart.addCandlestickSeries({
+                    upColor: '#26a69a',
+                    downColor: '#ef5350',
+                    borderVisible: false,
+                });
+
+                // 響應式調整
+                const resizeObserver = new ResizeObserver(entries => {
+                    for (let entry of entries) {
+                        const { width, height } = entry.contentRect;
+                        this.chart.resize(width, height);
+                    }
+                });
+                resizeObserver.observe(chartContainer);
+            }
+
+            bindEvents() {
+                document.getElementById('generate-fvg').addEventListener('click', () => {
+                    this.generateTestFVGs();
+                });
+                
+                document.getElementById('clear-fvg').addEventListener('click', () => {
+                    this.clearFVGs();
+                });
+                
+                document.getElementById('performance-test').addEventListener('click', () => {
+                    this.runPerformanceTest();
+                });
+                
+                document.getElementById('toggle-mode').addEventListener('click', () => {
+                    this.toggleMode();
+                });
+                
+                document.getElementById('refresh-btn').addEventListener('click', () => {
+                    this.generateSampleData();
+                });
+                
+                document.getElementById('reset-zoom-btn').addEventListener('click', () => {
+                    this.chart.timeScale().fitContent();
+                });
+                
+                document.getElementById('fvg-toggle-btn').addEventListener('click', () => {
+                    this.toggleFVGDisplay();
+                });
+            }
+
+            generateSampleData() {
+                // 生成示例 K 線數據
+                const candleData = [];
+                const startTime = Math.floor(Date.now() / 1000) - 3600 * 24; // 24小時前
+                
+                let price = 100 + Math.random() * 50;
+                
+                for (let i = 0; i < 200; i++) {
+                    const time = startTime + i * 300; // 5分鐘間隔
+                    const change = (Math.random() - 0.5) * 2;
+                    price += change;
+                    
+                    const high = price + Math.random() * 2;
+                    const low = price - Math.random() * 2;
+                    const close = price + (Math.random() - 0.5) * 1;
+                    
+                    candleData.push({
+                        time: time,
+                        open: price,
+                        high: high,
+                        low: low,
+                        close: close
+                    });
+                    
+                    price = close;
+                }
+                
+                this.candlestickSeries.setData(candleData);
+                this.chart.timeScale().fitContent();
+            }
+
+            generateTestFVGs() {
+                this.clearFVGs();
+                
+                const count = parseInt(document.getElementById('fvg-count-select').value);
+                this.testFVGs = [];
+                
+                const startTime = Math.floor(Date.now() / 1000) - 3600 * 12;
+                const basePrice = 120;
+                
+                for (let i = 0; i < count; i++) {
+                    const time = startTime + i * 600; // 10分鐘間隔
+                    const centerPrice = basePrice + (Math.random() - 0.5) * 20;
+                    const gapSize = 0.5 + Math.random() * 3; // 0.5-3.5的gap
+                    
+                    this.testFVGs.push({
+                        startTime: time,
+                        endTime: time + 1800, // 30分鐘持續
+                        top: centerPrice + gapSize / 2,
+                        bottom: centerPrice - gapSize / 2,
+                        type: Math.random() > 0.5 ? 'bull' : 'bear'
+                    });
+                }
+                
+                this.renderFVGs();
+                this.updateStats();
+            }
+
+            renderFVGs() {
+                const startTime = performance.now();
+                
+                if (this.useOptimizedMode) {
+                    this.renderOptimizedFVGs();
+                } else {
+                    this.renderLegacyFVGs();
+                }
+                
+                this.lastTestTime = performance.now() - startTime;
+                this.updateStats();
+            }
+
+            renderOptimizedFVGs() {
+                // 優化模式：固定透明度，最少線條
+                this.testFVGs.forEach(fvg => {
+                    const height = fvg.top - fvg.bottom;
+                    
+                    // 固定線條數，模擬像素感知
+                    const lineCount = Math.max(3, Math.min(15, Math.floor(height * 5)));
+                    const step = height / lineCount;
+                    
+                    for (let i = 0; i < lineCount; i++) {
+                        const price = fvg.bottom + (step * i);
+                        const series = this.chart.addLineSeries({
+                            color: fvg.type === 'bull' ? 
+                                'rgba(76, 175, 80, 0.25)' : 
+                                'rgba(244, 67, 54, 0.25)',
+                            lineWidth: 1,
+                            priceLineVisible: false,
+                            lastValueVisible: false,
+                            crosshairMarkerVisible: false,
+                        });
+                        
+                        series.setData([
+                            { time: fvg.startTime, value: price },
+                            { time: fvg.endTime, value: price }
+                        ]);
+                        
+                        this.fvgSeries.push(series);
+                    }
+                });
+            }
+
+            renderLegacyFVGs() {
+                // 傳統模式：基於價格高度的線條數
+                this.testFVGs.forEach(fvg => {
+                    const height = fvg.top - fvg.bottom;
+                    
+                    // 舊邏輯：價格高度決定線條數，導致密度不一
+                    const baseLineCount = Math.floor(height * 8); // 更多線條
+                    const lineCount = Math.min(Math.max(baseLineCount, 5), 40);
+                    const step = height / lineCount;
+                    
+                    for (let i = 0; i < lineCount; i++) {
+                        const price = fvg.bottom + (step * i);
+                        const series = this.chart.addLineSeries({
+                            color: fvg.type === 'bull' ? 
+                                'rgba(76, 175, 80, 0.15)' : 
+                                'rgba(244, 67, 54, 0.15)',
+                            lineWidth: 1,
+                            priceLineVisible: false,
+                            lastValueVisible: false,
+                            crosshairMarkerVisible: false,
+                        });
+                        
+                        series.setData([
+                            { time: fvg.startTime, value: price },
+                            { time: fvg.endTime, value: price }
+                        ]);
+                        
+                        this.fvgSeries.push(series);
+                    }
+                });
+            }
+
+            clearFVGs() {
+                this.fvgSeries.forEach(series => {
+                    this.chart.removeSeries(series);
+                });
+                this.fvgSeries = [];
+                this.updateStats();
+            }
+
+            runPerformanceTest() {
+                if (this.testFVGs.length === 0) {
+                    alert('請先生成測試 FVG');
+                    return;
+                }
+                
+                const iterations = 3;
+                let totalTime = 0;
+                
+                for (let i = 0; i < iterations; i++) {
+                    this.clearFVGs();
+                    const startTime = performance.now();
+                    this.renderFVGs();
+                    totalTime += (performance.now() - startTime);
+                }
+                
+                const avgTime = totalTime / iterations;
+                this.lastTestTime = avgTime;
+                this.updateStats();
+                
+                alert(`性能測試完成\\n平均渲染時間: ${avgTime.toFixed(2)}ms\\n模式: ${this.useOptimizedMode ? '優化' : '傳統'}`);
+            }
+
+            toggleMode() {
+                this.useOptimizedMode = !this.useOptimizedMode;
+                this.updateModeIndicator();
+                
+                // 如果有 FVG，重新渲染
+                if (this.testFVGs.length > 0) {
+                    this.clearFVGs();
+                    this.renderFVGs();
+                }
+            }
+
+            toggleFVGDisplay() {
+                const btn = document.getElementById('fvg-toggle-btn');
+                if (this.fvgSeries.length > 0) {
+                    this.clearFVGs();
+                    btn.textContent = 'FVG 關';
+                    btn.classList.remove('active');
+                } else if (this.testFVGs.length > 0) {
+                    this.renderFVGs();
+                    btn.textContent = 'FVG 開';
+                    btn.classList.add('active');
+                }
+            }
+
+            updateModeIndicator() {
+                const indicator = document.getElementById('mode-indicator');
+                if (this.useOptimizedMode) {
+                    indicator.textContent = '當前模式: 優化模式';
+                    indicator.className = 'mode-indicator mode-optimized';
+                } else {
+                    indicator.textContent = '當前模式: 傳統模式';
+                    indicator.className = 'mode-indicator mode-legacy';
+                }
+            }
+
+            updateStats() {
+                document.getElementById('render-mode').textContent = 
+                    this.useOptimizedMode ? '優化 (像素感知)' : '傳統 (價格感知)';
+                    
+                document.getElementById('fvg-count').textContent = this.testFVGs.length;
+                document.getElementById('series-count').textContent = this.fvgSeries.length;
+                
+                document.getElementById('last-test-time').textContent = 
+                    this.lastTestTime > 0 ? `${this.lastTestTime.toFixed(2)}ms` : '--';
+                
+                const memoryKB = this.fvgSeries.length * 2; // 每系列約2KB
+                document.getElementById('memory-estimate').textContent = `~${memoryKB}KB`;
+                
+                // 計算性能提升
+                if (this.testFVGs.length > 0) {
+                    const optimizedSeries = this.testFVGs.length * 10; // 平均10條線
+                    const legacySeries = this.testFVGs.length * 25; // 平均25條線
+                    const improvement = ((legacySeries - optimizedSeries) / legacySeries * 100).toFixed(0);
+                    document.getElementById('performance-gain').textContent = 
+                        this.useOptimizedMode ? `節省 ${improvement}%` : '基準';
+                }
+            }
+        }
+
+        // 初始化演示
+        window.addEventListener('load', () => {
+            new FVGPerformanceDemo();
+        });
+    </script>
+</body>
+</html>

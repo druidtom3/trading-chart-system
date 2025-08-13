@@ -1,0 +1,23 @@
+trading_chart_system\
+├── docs\
+│   └── folder_structure.txt          # 專案結構說明
+├── data\                             # CSV 資料檔案放置區
+│   ├── MNQ_M1_2019-2024.csv
+│   ├── MNQ_M5_2019-2024.csv
+│   ├── MNQ_H1_2019-2024.csv
+│   └── MNQ_H4_2019-2024.csv
+├── src\                              # 主要程式碼目錄
+│   ├── backend\                      # 後端 Python 程式
+│   │   ├── app.py                    # Flask 主程式
+│   │   ├── data_processor.py         # 資料處理邏輯
+│   │   └── time_utils.py             # 時間轉換工具
+│   ├── frontend\                     # 前端網頁程式
+│   │   ├── index.html                # 主頁面
+│   │   ├── script.js                 # JavaScript 邏輯
+│   │   └── style.css                 # 樣式設定
+│   └── utils\                        # 通用工具
+│       └── config.py                 # 設定檔
+├── tests\                            # 測試檔案區
+├── misc\                             # 雜項備查區
+└── logs\                             # 系統日誌
+    └── error.log                     # 錯誤日誌

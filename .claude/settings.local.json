@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "WebFetch(domain:tradingview.github.io)",
+      "WebSearch",
+      "WebFetch(domain:www.tradingview.com)",
+      "Bash(cp:*)",
+      "Bash(taskkill:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

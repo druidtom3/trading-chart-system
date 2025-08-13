@@ -1,0 +1,100 @@
+下面給你最小改動就能解決的方案（含註解）。核心做法是：
+
+產生 FVG 時標註來源 origin ∈ {"gap","three"}；
+
+做一個 IoU 去重合併，若同向且重疊度高，優先保留 origin="gap" 的那一個（把三根抓到的視為重複），確保「一個跳空 → 一個 FVG」。
+
+❶ 在偵測時標記來源
+python
+複製
+編輯
+# 三根結構
+if L["high"] < R["low"]:
+    fvgs.append({"idx": i + 1, "type": "bull", "top": R["low"], "bot": L["high"], "origin": "three"})
+elif L["low"] > R["high"]:
+    fvgs.append({"idx": i + 1, "type": "bear", "top": L["low"], "bot": R["high"], "origin": "three"})
+
+# 跳空（注意：同向實體）
+if C["open"] > L["high"] and C["close"] > C["open"]:
+    fvgs.append({"idx": i, "type": "bull", "top": C["open"], "bot": L["high"], "origin": "gap"})
+if C["open"] < L["low"] and C["close"] < C["open"]:
+    fvgs.append({"idx": i, "type": "bear", "top": L["low"], "bot": C["open"], "origin": "gap"})
+仍請保留你現有的 top/bot = max/min() 的保險，確保 top > bot。
+
+❷ 新增「只留 1 個跳空 FVG」的去重合併
+python
+複製
+編輯
+def _iou(a, b):
+    top = min(a["top"], b["top"])
+    bot = max(a["bot"], b["bot"])
+    inter = max(0.0, top - bot)
+    union = (a["top"] - a["bot"]) + (b["top"] - b["bot"]) - inter
+    return inter / union if union > 0 else 0.0
+
+def _dedupe_merge(self, fvgs, iou_thresh=0.75):
+    """
+    規則：
+    1) 同向 (type 相同) 且 IoU >= 0.75 視為重複。
+    2) 若其中一個 origin="gap"，保留 gap，捨棄 three。
+    3) 若兩者 origin 相同 → 保留「較寬」的；idx 取較早的 min(idx)。
+    4) 額外處理：同一根 gap（同 idx、同 type）只允許 1 個。
+    """
+    fvgs = sorted(fvgs, key=lambda x: (x["type"], x["idx"]))
+    kept = []
+    seen_gap_key = set()   # (type, idx) 一個 gap 僅允許一個
+
+    for f in fvgs:
+        # 4) 同一根 gap 的唯一性
+        if f.get("origin") == "gap":
+            key = (f["type"], f["idx"])
+            if key in seen_gap_key:
+                continue
+            seen_gap_key.add(key)
+
+        merged = False
+        for k in kept:
+            if f["type"] != k["type"]:
+                continue
+            if _iou(f, k) < iou_thresh:
+                continue
+
+            # 2) gap 優先：保 gap、棄 three
+            if f.get("origin") == "gap" and k.get("origin") == "three":
+                k.update(top=f["top"], bot=f["bot"], idx=min(k["idx"], f["idx"]), origin="gap")
+                merged = True
+                break
+            if k.get("origin") == "gap" and f.get("origin") == "three":
+                merged = True  # 直接丟掉 f
+                break
+
+            # 3) 同起源：保較寬者
+            if (f["top"] - f["bot"]) > (k["top"] - k["bot"]):
+                k.update(top=f["top"], bot=f["bot"], idx=min(k["idx"], f["idx"]))
+            merged = True
+            break
+
+        if not merged:
+            kept.append(f)
+
+    return kept
+在 detect() 裡串接（先去重一次避免後續被誤判填補掉的是重複；後再去重一次清理殘留）：
+
+python
+複製
+編輯
+fvgs = self._dedupe_merge(fvgs)          # 先去重（解決：跳空+三根雙算）
+for f in fvgs:
+    self._check_fill_and_expire(f, df)
+fvgs = [f for f in fvgs if not f["expired"] and not f["filled"]]
+fvgs = self._dedupe_merge(fvgs)          # 收尾再去重一次
+return fvgs
+這樣能保證什麼？
+同一個跳空事件（同 idx、同 type）最多只會留下 1 個 FVG。
+
+若跳空同時滿足三根結構，只留 origin="gap" 的那一個。
+
+若滑動視窗造成鄰近兩個幾乎一致的 FVG（非跳空），IoU 規則會合併為 1 個，避免你圖上藍圈那種重複。
+
+若你想更「嚴」：把 iou_thresh 提到 0.85；更「鬆」：降到 0.6。
+這不會影響「該畫卻沒畫」的問題——那是填補判定造成的，我前一則已給出**移除「多根累積覆蓋」**的修正；兩者可同時啟用。

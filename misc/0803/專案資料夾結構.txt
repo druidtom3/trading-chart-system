@@ -1,0 +1,28 @@
+PatternWeaver/
+├── data/                          # CSV 資料檔案
+│   ├── MNQ_M1_2019-2024.csv
+│   ├── MNQ_M5_2019-2024.csv
+│   ├── MNQ_M15_2019-2024.csv
+│   ├── MNQ_H1_2019-2024.csv
+│   ├── MNQ_H4_2019-2024.csv
+│   └── MNQ_D1_2019-2024.csv
+├── src/
+│   ├── backend/
+│   │   ├── app.py                # Flask 主程式
+│   │   ├── data_processor.py     # 資料處理核心
+│   │   └── time_utils.py         # 時間轉換工具
+│   ├── frontend/
+│   │   ├── index.html            # 主頁面
+│   │   ├── script.js             # 主要 JavaScript
+│   │   ├── candleAggregator.js   # K線聚合器
+│   │   └── style.css             # 樣式
+│   └── utils/
+│       └── config.py             # 設定檔
+├── logs/
+│   └── error.log                 # 錯誤日誌
+├── docs/
+│   └── folder_structure.txt      # 資料夾結構文件
+├── tests/                        # （空）測試資料夾
+├── misc/                         # （空）雜項資料夾
+├── requirements.txt              # Python 依賴
+└── start.bat                     # 啟動腳本
