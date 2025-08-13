@@ -1,0 +1,32 @@
+我把你圖上圈的 4 類問題歸納成三個根因，然後直接給「不拘小改動」的最佳方案：重寫偵測核心與前端渲染的關鍵路徑。這套改動同時解決：
+
+綠色 FVG 被「多根實體」回補卻沒有消失
+
+紅色 FVG 已被回補仍殘留（重疊）
+
+跳空 FVG 顯示偏一根（off-by-one）
+
+該出現的 FVG 沒出現（時間切窗/左界判定）
+
+我會怎麼改（結論）
+後端：
+
+以「左界對齊 L（左 K）」為準一的時間/索引語義（left_idx/left_time），三根與跳空都一致。
+
+回補邏輯支援兩種模式：
+
+fill_mode="single"：僅接受單根實體一次覆蓋（你現在的嚴格規格）。
+
+fill_mode="multi_strict"：接受多根實體連續覆蓋（把未覆蓋區段做區間扣除，清單扣到空才算回補；中間不能斷）。
+
+動態顯示：預設 confirm_on_close=False，會把尚未收盤的最後一根也納入判斷——因此「一度覆蓋→收盤前縮回」會如你要求重新出現。
+
+去重合併：同向 + 高 IoU（≥0.8）視為重複；gap 優先於 three；同起源取較寬。
+
+輸出一致：每個 FVG 都回傳 id（穩定 hash）、left_time/idx、top/bot、origin、max_age，以及 filled/expired/filled_at/expired_at。
+
+前端：
+
+用 left_time 當矩形左界（修正跳空 FVG 少一根的錯覺）。
+
+顯示到「目前播放時間」：born_time = left_time || time，若 born_time <= playbackNow 才畫；非播放模式畫全部未回補/未過期。
