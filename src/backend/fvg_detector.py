@@ -35,12 +35,13 @@ class FVGDetector:
             return -1  # 看空
         return 0  # 十字線
 
-    def _create_fvg(self, left_idx: int, fvg_type: str, price1: float, price2: float, left_row, born_row) -> Dict[str, Any]:
+    def _create_fvg(self, left_idx: int, confirm_idx: int, fvg_type: str, price1: float, price2: float, left_row, born_row) -> Dict[str, Any]:
         """
-        建立 FVG 物件，統一以左界對齊語義
+        建立 FVG 物件，分離顯示起點和檢測起點
         
         Args:
-            left_idx: 左K線索引（統一語義）
+            left_idx: 左K線索引（用於前端顯示起點）
+            confirm_idx: 確認索引（用於回補檢測起點）
             fvg_type: 'bull' 或 'bear'
             price1, price2: 兩個價格點
             left_row: 左K線資料（用於left_time）
@@ -51,11 +52,12 @@ class FVGDetector:
         lower = min(float(price1), float(price2))
         
         # 生成穩定的 ID
-        fvg_id = f"{fvg_type}_{left_idx}_{upper}_{lower}"
+        fvg_id = f"{fvg_type}_{confirm_idx}_{upper}_{lower}"
         
         return {
             "id": fvg_id,
-            "idx": left_idx,  # 統一為左K線索引
+            "idx": confirm_idx,  # 用於回補檢測的起點
+            "left_idx": left_idx,  # 用於前端顯示的起點
             "type": fvg_type,
             "top": upper,
             "bot": lower,
@@ -92,27 +94,31 @@ class FVGDetector:
 
             # b) 三根結構 FVG
             if L["High"] < R["Low"]:
-                # 看多 FVG：左高 < 右低 - 左界對齊語義
-                fvg = self._create_fvg(i - 1, "bull", R["Low"], L["High"], L, R)  # left_idx = i-1 (L的索引)
+                # 看多 FVG：左高 < 右低
+                # left_idx=i-1 (L的位置，用於顯示), confirm_idx=i+1 (R的位置，用於檢測)
+                fvg = self._create_fvg(i - 1, i + 1, "bull", R["Low"], L["High"], L, R)
                 fvg["origin"] = "three"  # 標記來源
                 fvgs.append(fvg)
                 
             elif L["Low"] > R["High"]:
-                # 看空 FVG：左低 > 右高 - 左界對齊語義
-                fvg = self._create_fvg(i - 1, "bear", L["Low"], R["High"], L, R)  # left_idx = i-1 (L的索引)
+                # 看空 FVG：左低 > 右高
+                # left_idx=i-1 (L的位置，用於顯示), confirm_idx=i+1 (R的位置，用於檢測)
+                fvg = self._create_fvg(i - 1, i + 1, "bear", L["Low"], R["High"], L, R)
                 fvg["origin"] = "three"  # 標記來源
                 fvgs.append(fvg)
 
-            # c) 跳空 FVG（同向實體）- 左界對齊語義
+            # c) 跳空 FVG（同向實體）
             if C["Open"] > L["High"] and C["Close"] > C["Open"]:
-                # 向上跳空（綠K）- 左界對齊語義
-                fvg = self._create_fvg(i - 1, "bull", C["Open"], L["High"], L, C)  # left_idx = i-1 (L的索引)
+                # 向上跳空（綠K）
+                # left_idx=i-1 (L的位置，用於顯示), confirm_idx=i (C的位置，用於檢測)
+                fvg = self._create_fvg(i - 1, i, "bull", C["Open"], L["High"], L, C)
                 fvg["origin"] = "gap"  # 標記來源
                 fvgs.append(fvg)
                 
             if C["Open"] < L["Low"] and C["Close"] < C["Open"]:
-                # 向下跳空（紅K）- 左界對齊語義  
-                fvg = self._create_fvg(i - 1, "bear", L["Low"], C["Open"], L, C)  # left_idx = i-1 (L的索引)
+                # 向下跳空（紅K）
+                # left_idx=i-1 (L的位置，用於顯示), confirm_idx=i (C的位置，用於檢測)
+                fvg = self._create_fvg(i - 1, i, "bear", L["Low"], C["Open"], L, C)
                 fvg["origin"] = "gap"  # 標記來源
                 fvgs.append(fvg)
 
