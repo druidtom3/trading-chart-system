@@ -4,8 +4,7 @@ const CONFIG = {
     // FVG 相關配置
     FVG: {
         DISPLAY_LENGTH: 40,        // FVG顯示長度（K線數量）
-        DETECTION_RANGE: 400,      // FVG檢測範圍（K線數量）
-        MAX_AGE: 400,              // FVG最大存活期限
+        DETECTION_RANGE: 400,      // FVG檢測範圍（開盤前K線數）
         OPACITY: 0.25,             // 填充透明度
         MAX_LINES: 60,             // 最大填充線條數
         FALLBACK_LINES: 12,        // 退路線條數

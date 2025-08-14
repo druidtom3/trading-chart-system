@@ -16,14 +16,14 @@ class FVGDetector:
 
     def __init__(
         self,
-        max_age: int = 400,  # FVG存活期限（多少根K線後過期）
+        detection_range: int = 400,  # FVG檢測範圍（開盤前多少根K線）
         require_dir_continuity: bool = False,  # 是否要求方向連續性
         fill_mode: str = "single",  # 回補模式：single, multi_strict
         confirm_on_close: bool = False,  # 是否需要收盤確認
         iou_thresh: float = 0.8,  # IoU去重閾值（規格要求0.8）
         tick_eps: float = 0.0,  # tick容差
     ):
-        self.max_age = max_age
+        self.detection_range = detection_range
         self.require_dir_continuity = require_dir_continuity
         self.fill_mode = fill_mode
         self.confirm_on_close = confirm_on_close
@@ -271,7 +271,7 @@ class FVGDetector:
             df: DataFrame
         """
         start_idx = fvg["idx"]
-        end_idx = min(len(df) - 1, start_idx + self.max_age)
+        end_idx = min(len(df) - 1, start_idx + self.detection_range)
         
         # FVG 的上下邊界
         fvg_top = max(fvg["top"], fvg["bot"])
@@ -322,6 +322,6 @@ class FVGDetector:
                     return
         
         # 檢查是否過期
-        if end_idx == start_idx + self.max_age:
+        if end_idx == start_idx + self.detection_range:
             fvg["expired"] = True
             fvg["expired_at"] = end_idx

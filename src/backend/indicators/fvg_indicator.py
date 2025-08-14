@@ -18,14 +18,14 @@ class FVGIndicator(BaseIndicator):
         super().__init__("FVG", config)
         
         # 從配置中獲取參數（依據規格v2調整預設值）
-        self.max_age = self.config.get('max_age', 400)  # 維持原有設定
+        self.detection_range = self.config.get('detection_range', 400)  # FVG檢測範圍
         self.require_dir_continuity = self.config.get('require_dir_continuity', False)  # 規格v2預設值
         self.iou_thresh = self.config.get('iou_thresh', 0.8)  # 規格v2要求
         self.tick_eps = self.config.get('tick_eps', 0.0)  # 規格v2新增
         
         # 初始化 FVG 檢測器
         self.detector = FVGDetector(
-            max_age=self.max_age,
+            detection_range=self.detection_range,
             require_dir_continuity=self.require_dir_continuity,
             iou_thresh=self.iou_thresh,
             tick_eps=self.tick_eps
@@ -101,12 +101,12 @@ class FVGIndicator(BaseIndicator):
         """
         base_schema = super().get_config_schema()
         base_schema['properties'].update({
-            "max_age": {
+            "detection_range": {
                 "type": "integer",
                 "default": 400,
                 "minimum": 10,
                 "maximum": 1000,
-                "title": "最大存活期"
+                "title": "檢測範圍"
             },
             "require_dir_continuity": {
                 "type": "boolean", 
@@ -135,8 +135,8 @@ class FVGIndicator(BaseIndicator):
         super().update_config(config)
         
         # 更新檢測器參數
-        if 'max_age' in config:
-            self.max_age = config['max_age']
+        if 'detection_range' in config:
+            self.detection_range = config['detection_range']
         if 'require_dir_continuity' in config:
             self.require_dir_continuity = config['require_dir_continuity']
         if 'iou_thresh' in config:
@@ -146,7 +146,7 @@ class FVGIndicator(BaseIndicator):
             
         # 重新初始化檢測器
         self.detector = FVGDetector(
-            max_age=self.max_age,
+            detection_range=self.detection_range,
             require_dir_continuity=self.require_dir_continuity,
             iou_thresh=self.iou_thresh,
             tick_eps=self.tick_eps
