@@ -24,7 +24,7 @@ data_processor = DataProcessor()
 def index():
     """主頁面"""
     frontend_dir = os.path.join(PROJECT_ROOT, 'src', 'frontend')
-    return send_from_directory(frontend_dir, 'index.html')
+    return send_from_directory(frontend_dir, 'index-v2.html')
 
 @app.route('/<path:filename>')
 def static_files(filename):
