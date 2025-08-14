@@ -116,8 +116,38 @@ def get_m1_playback_data(date):
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    
-    
+
+@app.route('/api/continuity-summary')
+def get_continuity_summary():
+    """取得所有時間框架的K線連續性摘要"""
+    try:
+        summary = data_processor.get_continuity_summary()
+        return jsonify(summary)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/continuity-report/<timeframe>')
+def get_continuity_report(timeframe):
+    """取得特定時間框架的詳細連續性報告"""
+    try:
+        report = data_processor.get_continuity_report(timeframe)
+        if report is None:
+            return jsonify({'error': f'找不到時間框架 {timeframe} 的連續性報告'}), 404
+        return jsonify(report)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/date-continuity/<date>/<timeframe>')
+def get_date_continuity(date, timeframe):
+    """檢查特定日期和時間框架的K線連續性"""
+    try:
+        from datetime import datetime
+        target_date = datetime.strptime(date, '%Y-%m-%d').date()
+        
+        result = data_processor.check_date_continuity(target_date, timeframe)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("=== 交易圖表系統啟動中 ===")

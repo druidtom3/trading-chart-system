@@ -6,6 +6,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from indicators.base_indicator import BaseIndicator
 from fvg_detector import FVGDetector
+from fvg_detector_v3 import FVGDetectorV3
 import pandas as pd
 from typing import Dict, List, Any
 
@@ -17,19 +18,27 @@ class FVGIndicator(BaseIndicator):
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__("FVG", config)
         
-        # 從配置中獲取參數（依據規格v2調整預設值）
-        self.detection_range = self.config.get('detection_range', 400)  # FVG檢測範圍
-        self.require_dir_continuity = self.config.get('require_dir_continuity', False)  # 規格v2預設值
-        self.iou_thresh = self.config.get('iou_thresh', 0.8)  # 規格v2要求
-        self.tick_eps = self.config.get('tick_eps', 0.0)  # 規格v2新增
+        # 檢查是否使用V3版本（簡化精準版）
+        self.use_v3 = self.config.get('use_v3', True)  # 預設使用V3版本
         
-        # 初始化 FVG 檢測器
-        self.detector = FVGDetector(
-            detection_range=self.detection_range,
-            require_dir_continuity=self.require_dir_continuity,
-            iou_thresh=self.iou_thresh,
-            tick_eps=self.tick_eps
-        )
+        if self.use_v3:
+            # V3版本：簡化參數
+            self.max_display_length = self.config.get('max_display_length', 40)
+            self.detector = FVGDetectorV3(max_display_length=self.max_display_length)
+        else:
+            # V2版本：保持向後兼容
+            self.detection_range = self.config.get('detection_range', 400)  # FVG檢測範圍
+            self.require_dir_continuity = self.config.get('require_dir_continuity', False)  # 規格v2預設值
+            self.iou_thresh = self.config.get('iou_thresh', 0.8)  # 規格v2要求
+            self.tick_eps = self.config.get('tick_eps', 0.0)  # 規格v2新增
+            
+            # 初始化 FVG 檢測器
+            self.detector = FVGDetector(
+                detection_range=self.detection_range,
+                require_dir_continuity=self.require_dir_continuity,
+                iou_thresh=self.iou_thresh,
+                tick_eps=self.tick_eps
+            )
         
     def calculate(self, data: pd.DataFrame) -> List[Dict[str, Any]]:
         """
@@ -45,28 +54,34 @@ class FVGIndicator(BaseIndicator):
             return []
             
         try:
-            # 使用現有的 FVG 檢測器
-            fvgs = self.detector.detect(data)
-            
-            # 轉換為統一格式
-            results = []
-            for fvg in fvgs:
-                results.append({
-                    'type': 'area',  # 渲染類型
-                    'data': {
-                        'time': fvg['time'],
-                        'top': fvg['top'],
-                        'bot': fvg['bot'],
-                        'fvg_type': fvg['type'],
-                        'idx': fvg['idx']
-                    },
-                    'style': {
+            if self.use_v3:
+                # V3版本檢測
+                fvgs = self.detector.detect_fvgs(data)
+                # V3版本已經格式化，直接返回
+                return fvgs
+            else:
+                # V2版本檢測
+                fvgs = self.detector.detect(data)
+                
+                # 轉換為統一格式
+                results = []
+                for fvg in fvgs:
+                    results.append({
+                        'type': 'area',  # 渲染類型
+                        'data': {
+                            'time': fvg['time'],
+                            'top': fvg['top'],
+                            'bot': fvg['bot'],
+                            'fvg_type': fvg['type'],
+                            'idx': fvg['idx']
+                        },
+                        'style': {
                         'color': '#ff4757' if fvg['type'] == 'bear' else '#2ed573',
                         'opacity': 0.3
                     }
                 })
-            
-            return results
+                
+                return results
             
         except Exception as e:
             print(f"FVG 計算錯誤: {str(e)}")

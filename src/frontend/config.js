@@ -6,18 +6,24 @@ const CONFIG = {
     
     // FVG 相關配置
     FVG: {
-        DISPLAY_LENGTH: 40,        // FVG顯示長度（K線數量）
-        DETECTION_RANGE: 400,      // FVG檢測範圍（開盤前K線數）
-        REQUIRE_DIR_CONTINUITY: false,  // 是否要求方向連續性
-        FILL_MODE: "single",       // 回補模式：single, multi_strict
-        CONFIRM_ON_CLOSE: false,   // 是否需要收盤確認
-        TICK_EPS: 0.0,            // tick精度容差
+        USE_V3: true,              // 使用V3版本（簡化精準版）
+        MAX_DISPLAY_LENGTH: 40,    // V3: 最大顯示長度/清除檢測範圍
+        
+        // V3版本簡化後保留的參數
+        DISPLAY_LENGTH: 40,        // FVG顯示長度（K線數量）- V3中與MAX_DISPLAY_LENGTH相同
         OPACITY: 0.25,             // 填充透明度
         MAX_LINES: 60,             // 最大填充線條數
         FALLBACK_LINES: 12,        // 退路線條數
         LINE_WIDTH: 1,             // 線條寬度
         GAP_WIDTH: 2,              // 線條間隔
-        IOU_THRESHOLD: 0.8         // IoU去重閾值（依據規格v2調整）
+        
+        // V2版本參數（向後兼容，當USE_V3=false時使用）
+        DETECTION_RANGE: 400,      // V2: FVG檢測範圍（開盤前K線數）
+        REQUIRE_DIR_CONTINUITY: false,  // V2: 是否要求方向連續性
+        FILL_MODE: "single",       // V2: 回補模式：single, multi_strict
+        CONFIRM_ON_CLOSE: false,   // V2: 是否需要收盤確認
+        TICK_EPS: 0.0,            // V2: tick精度容差
+        IOU_THRESHOLD: 0.8         // V2: IoU去重閾值
     },
 
     // 圖表相關配置

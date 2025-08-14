@@ -11,6 +11,7 @@ from utils.config import DATA_DIR, CSV_FILES, DEFAULT_CANDLE_COUNT, LOG_DIR
 from backend.time_utils import TimeConverter
 from backend.fvg_detector import FVGDetector
 from backend.us_holidays import holiday_detector
+from backend.candle_continuity_checker import CandleContinuityChecker
 
 # 設定 logging
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -27,6 +28,8 @@ class DataProcessor:
         self.available_dates = set()
         self.fvg_detector = FVGDetector()  # 新增 FVG 檢測器
         self.vwap_available = {}  # 追蹤各時間框架是否有 VWAP 資料
+        self.continuity_checker = CandleContinuityChecker()  # K線連續性檢查器（從2019-05-20開始檢查）
+        self.continuity_reports = {}  # 儲存連續性檢查報告
         
     def load_all_data(self):
         """載入所有時間刻度的資料到記憶體"""
@@ -151,6 +154,11 @@ class DataProcessor:
         min_date = min(self.available_dates)
         max_date = max(self.available_dates)
         print(f"   日期範圍: {min_date} ~ {max_date}")
+        
+        # 執行K線連續性檢查
+        print(f"\n正在執行K線連續性檢查...")
+        self.perform_continuity_check()
+        
         print("=" * 60)
         print("系統準備就緒，等待用戶連線...")
         print()
@@ -402,3 +410,73 @@ class DataProcessor:
     def get_available_timeframes(self) -> List[str]:
         """取得可用的時間刻度"""
         return list(self.data_cache.keys())
+    
+    def perform_continuity_check(self):
+        """對所有時間框架執行K線連續性檢查"""
+        print("   連續性檢查:")
+        
+        for timeframe in self.data_cache.keys():
+            try:
+                df = self.data_cache[timeframe]
+                status = self.continuity_checker.quick_check(df, timeframe)
+                
+                # 詳細檢查
+                result = self.continuity_checker.check_continuity(df, timeframe)
+                self.continuity_reports[timeframe] = result
+                
+                if result['status'] == 'completed':
+                    summary = result['summary']
+                    continuity_pct = summary['continuity_percentage']
+                    data_gaps = summary.get('total_data_gaps', summary.get('total_gaps', 0))
+                    missing_data = summary.get('total_missing_data', summary.get('total_missing_candles', 0))
+                    trading_gaps = summary.get('total_trading_gaps', 0)
+                    
+                    status_icon = "[OK]" if missing_data == 0 else "[WARN]" if missing_data < 100 else "[ERROR]"
+                    
+                    print(f"   {timeframe:>3}: {status_icon} {continuity_pct:6.1f}% 連續性 "
+                          f"(數據缺失: {missing_data:,} 根K線)")
+                    
+                    # 顯示正常停盤和真實缺失的分佈
+                    if trading_gaps > 0:
+                        print(f"        └─ 正常停盤: {trading_gaps} 個間隙")
+                    if data_gaps > 0:
+                        print(f"        └─ 數據缺失: {data_gaps} 個間隙")
+                    
+                    # 如果有嚴重問題，顯示詳細資訊
+                    if missing_data > 1000:
+                        print(f"        └─ 建議檢查數據質量")
+                
+            except Exception as e:
+                print(f"   {timeframe:>3}: [ERROR] 檢查失敗 - {str(e)}")
+                logging.error(f"連續性檢查失敗 [{timeframe}]: {str(e)}")
+    
+    def get_continuity_report(self, timeframe: str) -> Optional[Dict]:
+        """取得特定時間框架的連續性報告"""
+        return self.continuity_reports.get(timeframe)
+    
+    def check_date_continuity(self, target_date: date, timeframe: str) -> Dict:
+        """檢查特定日期的K線連續性"""
+        if timeframe not in self.data_cache:
+            raise ValueError(f"不支援的時間框架: {timeframe}")
+        
+        df = self.data_cache[timeframe]
+        date_str = target_date.strftime('%Y-%m-%d')
+        
+        return self.continuity_checker.check_continuity(df, timeframe, date_str)
+    
+    def get_continuity_summary(self) -> Dict:
+        """取得所有時間框架的連續性摘要"""
+        summary = {}
+        
+        for timeframe, report in self.continuity_reports.items():
+            if report and report['status'] == 'completed':
+                summary[timeframe] = {
+                    'continuity_percentage': report['summary']['continuity_percentage'],
+                    'total_gaps': report['summary']['total_gaps'],
+                    'missing_candles': report['summary']['total_missing_candles'],
+                    'status': self.continuity_checker.quick_check(self.data_cache[timeframe], timeframe)
+                }
+            else:
+                summary[timeframe] = {'status': 'error'}
+        
+        return summary
