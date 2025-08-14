@@ -209,6 +209,26 @@
             });
         }
         
+        // 載入多個腳本的輔助函數
+        function loadModules(modules, callback) {
+            let loaded = 0;
+            modules.forEach(module => {
+                const script = document.createElement('script');
+                script.src = module;
+                script.onload = () => {
+                    loaded++;
+                    if (loaded === modules.length) {
+                        callback();
+                    }
+                };
+                script.onerror = () => {
+                    console.error(`模組載入失敗: ${module}`);
+                    alert(`系統模組載入失敗: ${module}`);
+                };
+                document.head.appendChild(script);
+            });
+        }
+
         // 載入完成後初始化
         loadLightweightCharts()
             .then(() => {
@@ -219,10 +239,13 @@
                 
                 aggregatorScript.onload = () => {
                     console.log('CandleAggregator 載入成功');
-                    // 再載入主程式
-                    const script = document.createElement('script');
-                    script.src = 'script.js';
-                    document.head.appendChild(script);
+                    // 載入配置和管理器模組
+                    loadModules(['config.js', 'fvg-renderer.js', 'chart-manager.js', 'data-manager.js', 'playback-manager.js', 'event-manager.js'], () => {
+                        // 最後載入主程式
+                        const script = document.createElement('script');
+                        script.src = 'script.js';
+                        document.head.appendChild(script);
+                    });
                 };
                 
                 aggregatorScript.onerror = () => {

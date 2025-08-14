@@ -20,11 +20,15 @@ class FVGDetector:
         require_dir_continuity: bool = False,  # 是否要求方向連續性
         fill_mode: str = "single",  # 回補模式：single, multi_strict
         confirm_on_close: bool = False,  # 是否需要收盤確認
+        iou_thresh: float = 0.8,  # IoU去重閾值（規格要求0.8）
+        tick_eps: float = 0.0,  # tick容差
     ):
         self.max_age = max_age
         self.require_dir_continuity = require_dir_continuity
         self.fill_mode = fill_mode
         self.confirm_on_close = confirm_on_close
+        self.iou_thresh = iou_thresh
+        self.tick_eps = tick_eps
 
     @staticmethod
     def _candle_dir(row) -> int:
@@ -81,6 +85,9 @@ class FVGDetector:
         """
         if df.empty or len(df) < 3:
             return []
+        
+        # 時間單位一致性檢查（依據規格要求）
+        self._validate_time_units(df)
             
         fvgs: List[Dict[str, Any]] = []
 
@@ -138,6 +145,22 @@ class FVGDetector:
         logging.info(f"檢測到 {len(fvgs)} 個 FVG，去重後 {len(active_fvgs)} 個有效")
         
         return active_fvgs
+    
+    def _validate_time_units(self, df: pd.DataFrame):
+        """
+        檢查時間單位是否為UTC epoch秒（10位數）
+        依據FVG規格v2要求
+        """
+        if "DateTime" in df.columns:
+            # 檢查第一個時間戳
+            sample_time = df.iloc[0]["DateTime"]
+            if hasattr(sample_time, 'timestamp'):
+                timestamp = int(sample_time.timestamp())
+                # UTC epoch秒應該是10位數（約1970-2038年）
+                if not (1000000000 <= timestamp <= 9999999999):
+                    logging.warning(f"時間戳可能不是UTC epoch秒: {timestamp}")
+            else:
+                logging.warning("DateTime欄位格式異常")
 
     @staticmethod
     def _iou(a: Dict[str, Any], b: Dict[str, Any]) -> float:
@@ -156,25 +179,29 @@ class FVGDetector:
         union = (a["top"] - a["bot"]) + (b["top"] - b["bot"]) - inter
         return inter / union if union > 0 else 0.0
 
-    def _dedupe_merge(self, fvgs: List[Dict[str, Any]], iou_thresh: float = 0.75) -> List[Dict[str, Any]]:
+    def _dedupe_merge(self, fvgs: List[Dict[str, Any]], iou_thresh: float = None) -> List[Dict[str, Any]]:
         """
         去重合併FVG
         
         規則：
-        1) 同向 (type 相同) 且 IoU >= 0.75 視為重複
+        1) 同向 (type 相同) 且 IoU >= 0.8 視為重複
         2) 若其中一個 origin="gap"，保留 gap，捨棄 three
         3) 若兩者 origin 相同 → 保留「較寬」的；idx 取較早的 min(idx)
         4) 額外處理：同一根 gap（同 idx、同 type）只允許 1 個
         
         Args:
             fvgs: FVG列表
-            iou_thresh: IoU閾值，預設0.75
+            iou_thresh: IoU閾值，若為None則使用實例設定值
             
         Returns:
             List[Dict]: 去重後的FVG列表
         """
         if not fvgs:
             return []
+        
+        # 使用實例設定的IoU閾值
+        if iou_thresh is None:
+            iou_thresh = self.iou_thresh
             
         fvgs = sorted(fvgs, key=lambda x: (x["type"], x["idx"]))
         kept = []
@@ -258,8 +285,8 @@ class FVGDetector:
                 body_high = max(row["Open"], row["Close"])
                 body_low = min(row["Open"], row["Close"])
                 
-                # 單根 K 線完全覆蓋 FVG
-                if body_low <= fvg_bot and body_high >= fvg_top:
+                # 單根 K 線完全覆蓋 FVG（考慮tick容差）
+                if (body_low <= fvg_bot + self.tick_eps) and (body_high >= fvg_top - self.tick_eps):
                     fvg["filled"] = True
                     fvg["filled_at"] = j
                     return  # 立即回補

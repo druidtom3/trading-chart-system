@@ -17,14 +17,18 @@ class FVGIndicator(BaseIndicator):
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__("FVG", config)
         
-        # 從配置中獲取參數
-        self.max_age = self.config.get('max_age', 200)
-        self.require_dir_continuity = self.config.get('require_dir_continuity', True)
+        # 從配置中獲取參數（依據規格v2調整預設值）
+        self.max_age = self.config.get('max_age', 400)  # 維持原有設定
+        self.require_dir_continuity = self.config.get('require_dir_continuity', False)  # 規格v2預設值
+        self.iou_thresh = self.config.get('iou_thresh', 0.8)  # 規格v2要求
+        self.tick_eps = self.config.get('tick_eps', 0.0)  # 規格v2新增
         
         # 初始化 FVG 檢測器
         self.detector = FVGDetector(
             max_age=self.max_age,
-            require_dir_continuity=self.require_dir_continuity
+            require_dir_continuity=self.require_dir_continuity,
+            iou_thresh=self.iou_thresh,
+            tick_eps=self.tick_eps
         )
         
     def calculate(self, data: pd.DataFrame) -> List[Dict[str, Any]]:
@@ -99,15 +103,29 @@ class FVGIndicator(BaseIndicator):
         base_schema['properties'].update({
             "max_age": {
                 "type": "integer",
-                "default": 200,
+                "default": 400,
                 "minimum": 10,
                 "maximum": 1000,
                 "title": "最大存活期"
             },
             "require_dir_continuity": {
                 "type": "boolean", 
-                "default": True,
+                "default": False,
                 "title": "要求方向連續性"
+            },
+            "iou_thresh": {
+                "type": "number",
+                "default": 0.8,
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "title": "IoU去重閾值"
+            },
+            "tick_eps": {
+                "type": "number",
+                "default": 0.0,
+                "minimum": 0.0,
+                "maximum": 10.0,
+                "title": "tick容差"
             }
         })
         return base_schema
@@ -121,9 +139,15 @@ class FVGIndicator(BaseIndicator):
             self.max_age = config['max_age']
         if 'require_dir_continuity' in config:
             self.require_dir_continuity = config['require_dir_continuity']
+        if 'iou_thresh' in config:
+            self.iou_thresh = config['iou_thresh']
+        if 'tick_eps' in config:
+            self.tick_eps = config['tick_eps']
             
         # 重新初始化檢測器
         self.detector = FVGDetector(
             max_age=self.max_age,
-            require_dir_continuity=self.require_dir_continuity
+            require_dir_continuity=self.require_dir_continuity,
+            iou_thresh=self.iou_thresh,
+            tick_eps=self.tick_eps
         )

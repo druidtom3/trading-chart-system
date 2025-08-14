@@ -1,0 +1,210 @@
+FVG（Fair Value Gap）偵測與顯示規格 v1.0
+這份文件是「一次就寫對」的最小完備規格。交給任何工程師或 AI，都能依此實作出與我們現行行為一致、穩定且可維護的 FVG 偵測與前端顯示。
+
+0. 範圍與目標
+偵測兩種 FVG：三根結構（three-bar）與跳空（gap）。
+
+回補判定以實體為準（wick 忽略），支援「單根」與「多根連續覆蓋」兩種模式。
+
+到期/壽命、去重、時間軸、播放切窗與前端渲染的行為一致化。
+
+**多級別（多時間框架）**允許並存，不自動做優先序。
+
+1. 輸入資料與時間軸規則（必讀）
+1.1 K 線欄位（欄名大小寫容錯，內部轉正）
+必要欄位：Open, High, Low, Close
+
+推薦欄位：DateTime（每根的時間戳）
+
+時間單位統一：所有時間（K 線的 time、FVG 的 left_time/time）一律使用 UTC 的 epoch「秒」（10 位數整數）。
+
+不得使用毫秒（13 位數）、不得使用本地時區秒。
+
+1.2 實體/方向定義
+實體：body_low = min(Open, Close)，body_high = max(Open, Close)。
+
+方向：dir = sign(Close - Open)；上漲=+1、下跌=-1、十字=0。
+
+2. FVG 定義
+2.1 三根結構（Three-bar FVG）
+以連續三根 (L=i-1, C=i, R=i+1) 檢測：
+
+多頭：若 L.High < R.Low ⇒ FVG 區間 = [L.High, R.Low]
+
+空頭：若 L.Low > R.High ⇒ FVG 區間 = [R.High, L.Low]
+
+左界：固定使用 L
+
+形成點索引 (idx)：從 R 起開始追蹤
+
+來源 (origin)："three"
+
+可選過濾（預設關閉）：require_dir_continuity → 要求 dir(L) == dir(C)；R 不拘。
+
+2.2 跳空（Gap FVG）
+以相鄰兩根 (L=i-1, C=i) 檢測：
+
+多頭跳空：C.Open > L.High 且 C 為多頭實體（C.Close > C.Open）
+⇒ FVG 區間 = [L.High, C.Open]
+
+空頭跳空：C.Open < L.Low 且 C 為空頭實體（C.Close < C.Open）
+⇒ FVG 區間 = [C.Open, L.Low]
+
+左界：固定使用 L
+
+形成點索引 (idx)：從 C 起開始追蹤
+
+來源 (origin)："gap"
+
+註：同一個跳空事件只允許產生 1 個 FVG（見 §4 去重）。
+
+3. 輸出資料（DTO / Schema）
+每一筆 FVG 物件必須包含（並保證不變式）：
+
+csharp
+複製
+編輯
+id:            穩定識別（建議 hash(type, origin, left_time, round(top,N), round(bot,N))）
+type:          "bull" | "bear"
+origin:        "three" | "gap"
+top:           float  # 保證 top > bot
+bot:           float
+idx:           int    # 追蹤起算bar（three=R索引, gap=C索引）
+left_idx:      int    # 左界L的索引（three/gap一致）
+time:          int?   # 形成bar的UTC epoch秒（three=R, gap=C）
+left_time:     int?   # 左界L的UTC epoch秒（渲染左邊界用）
+max_age:       int    # 例: 40
+filled:        bool
+expired:       bool
+filled_at:     int?   # 填補發生時間（UTC秒）
+expired_at:    int?   # 過期時間（UTC秒）
+不變式：輸出前統一矯正 top > bot；left_time 必為 L 的時間。
+
+4. 去重 / 合併（只實作一套規則）
+目的：消除跳空與三根的雙算、滑動視窗重覆、近重疊的小框。
+
+同向 + 高重疊：FVG_a 與 FVG_b IoU ≥ 0.8 視為重複
+（IoU 以一維區間計算：inter = max(0, min(top_a, top_b) - max(bot_a, bot_b))；union = h_a + h_b - inter；IoU = inter/union）
+
+優先規則：origin="gap" 優先於 "three"（同一事件只留跳空版）
+
+同起源：保留較寬（top-bot 大者），idx 取較早 min(idx)
+
+唯一性：同一根左界 (type, left_idx) 的 "gap" 只允許 1 個
+
+呼叫時機：僅在兩個時間點呼叫
+① 填補/過期判定前（先去重避免重複框干擾）
+② 過濾/狀態更新後 收尾一次
+
+5. 回補（Fill）與壽命（Expire）
+5.1 回補判定（以「實體」為準，wick 忽略）
+提供兩種模式（需可配置）：
+
+fill_mode="single"（預設，嚴格）：
+第 j ∈ [idx, idx+max_age] 期間，若存在任一根使
+body_low(j) ≤ bot 且 body_high(j) ≥ top ⇒ filled
+
+fill_mode="multi_strict"（嚴格連續、多根合併）：
+初始化 remaining = [[bot, top]]；每根以 [body_low, body_high] 去扣除 remaining，
+直到 remaining 為空 ⇒ filled
+（中間不得斷裂；只要留有任何未覆蓋段就不算）
+
+tick 容差：可選 tick_eps ≥ 0，僅用於上述比較的 ±ε；預設建議 0 或最小跳動。
+
+5.2 壽命（max_age）
+從 idx 起算，最多追蹤 max_age 根。
+
+期滿時仍未 filled ⇒ expired
+
+推薦預設：max_age = 40
+
+5.3 未收盤行為（confirm_on_close）
+False（預設）：將最後一根未收 K也納入判斷（允許「覆蓋→縮回→再出現」的動態）
+
+True：只用已收 K；可避免閃爍（更穩定）
+
+6. 前端顯示規則（關鍵易錯點已內建）
+6.1 矩形座標
+左界時間：使用 left_time（L 的時間）
+
+右界時間：min( index(left_idx)+max_age, index(cutoff) )
+
+非播放模式：cutoff = 最右邊 K 的時間（或「不切窗」）
+
+播放模式：cutoff = 目前播放時間（UTC秒）
+
+價格上下界：[bot, top]（已保證 top>bot）
+
+6.2 顯示條件
+只渲染 filled==False 且 expired==False 的 FVG。
+
+播放切窗：僅呈現 born_time = (left_time || time) ≤ cutoff 的 FVG。
+非播放模式：不套用時間切窗（或令 cutoff=最右K時間）。
+
+6.3 時間單位一致性檢查（強烈建議加入啟動自檢）
+斷言 candles[0].time 與 fvg.left_time 都是 UTC epoch 秒（10 位數）
+若偵測到毫秒/本地時區 → 立即報錯，不渲染。
+
+6.4 渲染實作建議
+優先：chart.addShape({ shape:'rectangle', points:[{time,price}, {time,price}] })
+
+降級：若無 shape API，退為上下兩條 createPriceLine。
+
+id 為唯一 key；只做「新增 / 更新右界 / 刪除」。
+
+7. 參數與預設值（建議）
+參數	預設	說明
+max_age	40	逾期失效根數
+require_dir_continuity	False	三根結構是否要求 L 與 C 同色
+fill_mode	"single"	"single" 或 "multi_strict"
+confirm_on_close	False	是否僅用已收盤 K 做回補/到期判定
+iou_thresh	0.80	去重 IoU 門檻
+tick_eps	0.0	觸及容差（價位）
+
+多級別：允許不同 timeframe 的 FVG 同時存在（不做優先序）；如需視覺層級，可在前端以樣式區分。
+
+8. 偵測流程（高階步驟）
+正規化欄位/時間：OHLC 欄名轉正；DateTime → UTC epoch 秒。
+
+滑窗掃描：對每個 i 構成 (L=i-1,C=i,R=i+1)，依 §2 產生候選 FVG；left_idx=L索引，idx=R或C。
+
+不變式修正：每筆 FVG 確保 top>bot、補上 left_time/time。
+
+去重 #1：依 §4 規則（含 gap 優先）。
+
+回補/到期：依 §5 規則與參數更新 filled/expired/*_at。
+
+過濾：移除 expired==True 與（預設）filled==True 的 FVG。
+
+去重 #2：收尾再去重一次。
+
+輸出：依 §3 DTO。
+
+9. 驗收測試（最低集合）
+三根多/空：L.High < R.Low / L.Low > R.High 產生 1 個 FVG；左界= L。
+
+跳空：C.Open > L.High & C為多頭 / C.Open < L.Low & C為空頭 → 只產生 1 個 FVG（即使同時滿足三根）。
+
+wick-only 觸及：上/下影線插入但實體未覆蓋 → 不回補。
+
+單根實體覆蓋：任一根實體完整覆蓋 → 回補。
+
+多根連續覆蓋（multi_strict）：兩根實體連續把整段覆蓋、無缺口 → 回補。
+
+到期：idx + max_age 仍未覆蓋 → expired。
+
+去重：跳空+三根雙算、相鄰高重疊 → 只留 1 個（gap 優先 / 較寬者）。
+
+播放切窗：born_time ≤ cutoff 顯示；born_time > cutoff 不顯示。
+
+時間單位：把 K 線時間改成毫秒 → 前端啟動即報錯，不渲染（自檢生效）。
+
+10. 常見陷阱對照表（如何避免再踩）
+陷阱	典型症狀	修法
+秒/毫秒或時區不一致	全部不顯示	統一 UTC epoch 秒；啟動自檢
+播放切窗預設 0/未初始化	播放時整片為 0	非播放不切窗；播放用右端 K 當預設 cutoff
+用 wick 當回補	FVG 一出生就消失	只看實體；tick_eps 設小
+聯集式多根覆蓋	中間有洞也被當回補	使用 multi_strict（區間扣除）或乾脆不用多根
+去重鍵錯誤	全數被當重複刪掉	使用 (type,left_idx) 控制「一跳空一框」；IoU≥0.8 才合併
+左界用錯（用 time 非 left_time）	跳空偏一根	左界統一用 L 的 left_time/left_idx
+
