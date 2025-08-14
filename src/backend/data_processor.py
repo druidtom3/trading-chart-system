@@ -278,6 +278,11 @@ class DataProcessor:
             ny_open_taipei = self.time_converter.get_ny_market_open_taipei_time(target_date)
             is_dst = self.time_converter.is_dst_in_ny(target_date)
             
+            # 計算收盤時間（台北時間）- 紐約16:00
+            ny_close_time = datetime.combine(target_date, datetime.min.time().replace(hour=16, minute=0))
+            ny_close = self.time_converter.ny_tz.localize(ny_close_time)
+            ny_close_taipei = ny_close.astimezone(self.time_converter.taipei_tz)
+            
             print(f"資料處理完成")
             
             # 檢查假日狀態
@@ -290,6 +295,7 @@ class DataProcessor:
                 'fvgs': fvgs,  # 新增 FVG 資料
                 'pre_market_time': pre_market_time.strftime('%Y-%m-%d %H:%M:%S'),
                 'ny_open_taipei': ny_open_taipei.strftime('%Y-%m-%d %H:%M:%S'),
+                'ny_close_taipei': ny_close_taipei.strftime('%Y-%m-%d %H:%M:%S'),  # 修復Missing欄位
                 'is_dst': is_dst,
                 'candle_count': len(chart_data),
                 # 新增假日資訊
@@ -300,6 +306,7 @@ class DataProcessor:
                     'ny_offset': -4 if is_dst else -5,
                     'taipei_offset': 8,
                     'ny_open_time': ny_open_taipei.strftime('%H:%M'),
+                    'ny_close_time': ny_close_taipei.strftime('%H:%M'),  # 新增收盤時間
                     'pre_market_time': pre_market_time.strftime('%H:%M')
                 }
             }

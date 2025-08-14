@@ -1,0 +1,244 @@
+方案3：自定義渲染器（Custom Series）完整實現
+這是最靈活和最正確的方案，可以直接繪製真正的矩形。
+步驟1：創建自定義FVG渲染器類
+javascript// 新文件：src/frontend/fvg-custom-series.js
+
+class FVGCustomSeries {
+    constructor() {
+        this.fvgs = [];
+        this._chart = null;
+        this._series = null;
+    }
+    
+    // 自定義系列渲染器
+    renderer() {
+        const fvgs = this.fvgs;
+        
+        return {
+            draw: (target, priceConverter) => {
+                const ctx = target.context;
+                
+                fvgs.forEach(fvg => {
+                    // 轉換價格到Y座標
+                    const y1 = priceConverter(fvg.upper);
+                    const y2 = priceConverter(fvg.lower);
+                    
+                    if (y1 === null || y2 === null) return;
+                    
+                    // 轉換時間到X座標
+                    const x1 = target.timeScale.timeToCoordinate(fvg.startTime);
+                    const x2 = target.timeScale.timeToCoordinate(fvg.endTime);
+                    
+                    if (x1 === null || x2 === null) return;
+                    
+                    // 計算矩形尺寸
+                    const x = Math.min(x1, x2);
+                    const y = Math.min(y1, y2);
+                    const width = Math.abs(x2 - x1);
+                    const height = Math.abs(y2 - y1);
+                    
+                    // 繪製填充矩形
+                    ctx.fillStyle = fvg.fillColor;
+                    ctx.fillRect(x, y, width, height);
+                    
+                    // 繪製邊框
+                    ctx.strokeStyle = fvg.borderColor;
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x, y, width, height);
+                });
+            },
+            
+            // 自定義價格軸範圍
+            priceRange: () => {
+                if (fvgs.length === 0) return null;
+                
+                let minPrice = Infinity;
+                let maxPrice = -Infinity;
+                
+                fvgs.forEach(fvg => {
+                    minPrice = Math.min(minPrice, fvg.lower);
+                    maxPrice = Math.max(maxPrice, fvg.upper);
+                });
+                
+                return {
+                    minValue: minPrice,
+                    maxValue: maxPrice
+                };
+            },
+            
+            // 默認選項
+            defaultOptions: () => ({
+                priceScaleId: 'right',
+                lastValueVisible: false,
+                priceLineVisible: false,
+                autoscaleInfoProvider: () => ({
+                    priceRange: this.priceRange()
+                })
+            })
+        };
+    }
+    
+    // 更新FVG數據
+    updateData(fvgs) {
+        this.fvgs = fvgs.map(fvg => ({
+            startTime: fvg.left_time || fvg.time,
+            endTime: fvg.end_time || (fvg.left_time + 40 * this.getTimeStep()),
+            upper: Math.max(fvg.top, fvg.bot),
+            lower: Math.min(fvg.top, fvg.bot),
+            fillColor: this.getFVGColor(fvg.type, 0.15),
+            borderColor: this.getFVGColor(fvg.type, 0.3),
+            type: fvg.type,
+            id: fvg.id
+        }));
+        
+        // 觸發重繪
+        if (this._series) {
+            this._series.update();
+        }
+    }
+    
+    // 獲取FVG顏色
+    getFVGColor(type, opacity) {
+        const baseColor = type === 'bull' ? 
+            { r: 76, g: 175, b: 80 } :  // 綠色
+            { r: 244, g: 67, b: 54 };    // 紅色
+        
+        return `rgba(${baseColor.r}, ${baseColor.g}, ${baseColor.b}, ${opacity})`;
+    }
+    
+    // 獲取時間步長
+    getTimeStep() {
+        // 根據當前時間框架返回秒數
+        const timeframe = window.app?.currentTimeframe || 'M15';
+        const steps = {
+            'M1': 60,
+            'M5': 300,
+            'M15': 900,
+            'H1': 3600,
+            'H4': 14400,
+            'D1': 86400
+        };
+        return steps[timeframe] || 900;
+    }
+}
+步驟2：修改FVGRenderer使用自定義系列
+javascript// 修改 src/frontend/fvg-renderer.js
+
+class FVGRenderer {
+    constructor(chart, candlestickSeries) {
+        this.chart = chart;
+        this.candlestickSeries = candlestickSeries;
+        this.fvgSeries = [];
+        this.isVisible = true;
+        
+        // 初始化自定義FVG系列
+        this.customFVGSeries = new FVGCustomSeries();
+        this.customSeries = null;
+    }
+    
+    render(fvgs, currentTimeframe = 'M15', playbackMode = false) {
+        if (window.CONFIG?.DEBUG) {
+            console.log('FVGRenderer.render - 收到', fvgs?.length || 0, '個FVG');
+        }
+        
+        // 清除舊的系列
+        if (this.customSeries) {
+            this.chart.removeSeries(this.customSeries);
+            this.customSeries = null;
+        }
+        
+        if (!this.isVisible || !fvgs || fvgs.length === 0) {
+            return;
+        }
+        
+        // 過濾太小的FVG
+        const filteredFvgs = fvgs.filter(fvg => {
+            const height = Math.abs(fvg.top - fvg.bot);
+            return height >= 1.0;
+        });
+        
+        // 創建自定義系列
+        this.customSeries = this.chart.addCustomSeries(
+            this.customFVGSeries.renderer(),
+            this.customFVGSeries.defaultOptions()
+        );
+        
+        // 更新數據
+        this.customFVGSeries.updateData(filteredFvgs);
+        
+        // 設置數據到系列（觸發繪製）
+        this.customSeries.setData([]);
+    }
+    
+    clearAll() {
+        if (this.customSeries) {
+            this.chart.removeSeries(this.customSeries);
+            this.customSeries = null;
+        }
+    }
+}
+步驟3：如果Lightweight Charts版本不支持addCustomSeries
+如果你的版本不支援 addCustomSeries，這裡有一個使用插件模式的替代方案：
+javascript// 使用Series Markers作為替代方案
+class FVGRenderer {
+    renderWithMarkers(fvgs, currentTimeframe = 'M15') {
+        this.clearAll();
+        
+        if (!this.isVisible || !fvgs || fvgs.length === 0) {
+            return;
+        }
+        
+        fvgs.forEach(fvg => {
+            this.createFVGWithPriceLines(fvg, currentTimeframe);
+        });
+    }
+    
+    createFVGWithPriceLines(fvg, timeframe) {
+        const upper = Math.max(fvg.top, fvg.bot);
+        const lower = Math.min(fvg.top, fvg.bot);
+        const startTime = fvg.left_time || fvg.time;
+        const timeStep = ConfigUtils.getTimeframeSeconds(timeframe);
+        const endTime = startTime + (40 * timeStep);
+        
+        // 創建一個透明的區域系列作為基礎
+        const areaSeries = this.chart.addAreaSeries({
+            topColor: ConfigUtils.getFVGColor(fvg.type, 0.15),
+            bottomColor: ConfigUtils.getFVGColor(fvg.type, 0.05),
+            lineColor: ConfigUtils.getFVGColor(fvg.type, 0.3),
+            lineWidth: 2,
+            priceScaleId: 'right',
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+            baseLineVisible: false,
+        });
+        
+        // 創建梯形數據來模擬矩形
+        const data = [];
+        const steps = 10; // 使用10個點來創建平滑的矩形
+        
+        for (let i = 0; i <= steps; i++) {
+            const time = startTime + (endTime - startTime) * (i / steps);
+            data.push({
+                time: Math.floor(time),
+                value: upper
+            });
+        }
+        
+        areaSeries.setData(data);
+        
+        // 設置基線為FVG底部
+        areaSeries.createPriceLine({
+            price: lower,
+            color: 'transparent',
+            lineWidth: 0,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+        });
+        
+        this.fvgSeries.push({ 
+            series: areaSeries, 
+            type: 'area', 
+            fvgId: fvg.id 
+        });
+    }
+}

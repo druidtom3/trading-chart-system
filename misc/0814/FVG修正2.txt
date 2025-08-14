@@ -1,0 +1,137 @@
+我找到問題了！在 fvg-renderer.js 的 createRectangleFVG 函數中，FVG被分成三個獨立的線系列來繪製：
+
+中心填充線 - 使用動態線寬
+頂部邊框線 - 獨立的1px線
+底部邊框線 - 獨立的1px線
+
+這就是為什麼你看到三個分離的部分而不是一個完整的矩形！
+問題分析
+當前錯誤的實現：
+javascript// 創建三個獨立的線系列
+1. fvgLine - 中心線（試圖用線寬填充）
+2. topBorder - 頂部邊框
+3. bottomBorder - 底部邊框
+正確的解決方案：
+修復方案（給Claude Code CLI）
+javascript// 修改 src/frontend/fvg-renderer.js 的 createRectangleFVG 函數
+
+createRectangleFVG(type, startTime, endTime, upper, lower, fvgId) {
+    const opacity = 0.15; // 固定透明度
+    
+    // 方案1：使用區域填充（推薦）
+    // 創建一個區域系列來填充FVG
+    const areaSeries = this.chart.addAreaSeries({
+        topColor: ConfigUtils.getFVGColor(type, opacity),
+        bottomColor: ConfigUtils.getFVGColor(type, opacity * 0.5),
+        lineColor: ConfigUtils.getFVGColor(type, opacity * 2),
+        lineWidth: 1,
+        priceScaleId: 'right',
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+    });
+    
+    // 創建矩形區域的四個角
+    const areaData = [
+        { time: startTime, value: upper },
+        { time: endTime, value: upper }
+    ];
+    
+    const baselineData = [
+        { time: startTime, value: lower },
+        { time: endTime, value: lower }
+    ];
+    
+    areaSeries.setData(areaData);
+    // 設置基線為下邊界
+    
+    // 儲存系列
+    this.fvgSeries.push({ 
+        series: areaSeries, 
+        type: 'area', 
+        fvgId: fvgId 
+    });
+}
+或者方案2：使用多條平行線填充
+javascriptcreateRectangleFVG(type, startTime, endTime, upper, lower, fvgId) {
+    const height = upper - lower;
+    const opacity = 0.15;
+    
+    // 計算需要多少條線來填充整個矩形
+    const lineCount = Math.max(1, Math.min(50, Math.ceil(height * 2)));
+    const step = height / lineCount;
+    
+    // 創建一個組來管理所有線
+    const lines = [];
+    
+    for (let i = 0; i <= lineCount; i++) {
+        const price = lower + (step * i);
+        
+        const line = this.chart.addLineSeries({
+            color: ConfigUtils.getFVGColor(type, opacity),
+            lineWidth: Math.max(1, Math.ceil(step * 1.5)), // 確保線條重疊
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            priceScaleId: 'right',
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+        });
+        
+        const lineData = [
+            { time: startTime, value: price },
+            { time: endTime, value: price }
+        ];
+        
+        line.setData(lineData);
+        lines.push(line);
+    }
+    
+    // 儲存所有線系列
+    lines.forEach(line => {
+        this.fvgSeries.push({ 
+            series: line, 
+            type: 'fill-line', 
+            fvgId: fvgId 
+        });
+    });
+}
+或者方案3：使用自定義渲染器（最佳但較複雜）
+javascript// 使用 Lightweight Charts 的自定義系列 API
+class FVGSeries {
+    constructor(chart) {
+        this.chart = chart;
+        this.customSeries = chart.addCustomSeries(this.getRenderer());
+    }
+    
+    getRenderer() {
+        return {
+            draw: (ctx, data) => {
+                // 直接在canvas上繪製矩形
+                data.items.forEach(item => {
+                    ctx.fillStyle = item.color;
+                    ctx.fillRect(
+                        item.x, 
+                        item.y, 
+                        item.width, 
+                        item.height
+                    );
+                });
+            }
+        };
+    }
+}
+快速修復步驟
+
+備份現有文件
+選擇方案1（最簡單） - 使用區域填充
+修改 createRectangleFVG 函數
+移除三個獨立線系列的代碼
+測試確認FVG顯示為完整矩形
+
+根本原因
+
+使用三個獨立的線系列無法創建視覺上連續的矩形
+中心線的動態線寬不能完全覆蓋整個高度
+邊框線與填充線之間有間隙
+
+這個修復應該能讓FVG顯示為一個完整的矩形，而不是三個分離的部分。

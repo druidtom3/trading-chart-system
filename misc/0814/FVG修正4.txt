@@ -1,0 +1,315 @@
+最佳解決方案：改進的方案3
+：
+javascript// src/frontend/fvg-custom-renderer.js
+
+class FVGCustomRenderer {
+    constructor(chart) {
+        this.chart = chart;
+        this.fvgs = [];
+        this.series = null;
+    }
+    
+    createRenderer() {
+        const self = this;
+        
+        return {
+            // 主要繪製函數
+            draw: (params) => {
+                const { context: ctx, bitmapSize, mediaSize, 
+                        horizontalPixelRatio, verticalPixelRatio } = params;
+                
+                // 保存當前狀態
+                ctx.save();
+                
+                // 設置縮放比例（重要！處理高DPI螢幕）
+                ctx.scale(horizontalPixelRatio, verticalPixelRatio);
+                
+                // 遍歷所有FVG
+                self.fvgs.forEach(fvg => {
+                    self.drawFVG(ctx, params, fvg);
+                });
+                
+                // 恢復狀態
+                ctx.restore();
+            },
+            
+            // 處理Z-index（確保FVG在K線後面）
+            zOrder: () => 'bottom',
+        };
+    }
+    
+    drawFVG(ctx, params, fvg) {
+        const { timeScale, priceScale } = params;
+        
+        // 計算時間座標（處理縮放）
+        const x1 = timeScale.timeToCoordinate(fvg.startTime);
+        const x2 = timeScale.timeToCoordinate(fvg.endTime);
+        
+        // 如果FVG在可視範圍外，跳過繪製（性能優化）
+        if (x2 < 0 || x1 > params.mediaSize.width) {
+            return;
+        }
+        
+        // 計算價格座標（處理縮放）
+        const y1 = priceScale.priceToCoordinate(fvg.upper);
+        const y2 = priceScale.priceToCoordinate(fvg.lower);
+        
+        // 檢查座標有效性
+        if (x1 === null || x2 === null || y1 === null || y2 === null) {
+            return;
+        }
+        
+        // 計算矩形參數
+        const x = Math.min(x1, x2);
+        const y = Math.min(y1, y2);
+        const width = Math.abs(x2 - x1);
+        const height = Math.abs(y2 - y1);
+        
+        // 跳過太小的矩形（性能優化）
+        if (width < 1 || height < 1) {
+            return;
+        }
+        
+        // 繪製填充
+        ctx.fillStyle = fvg.fillColor;
+        ctx.fillRect(x, y, width, height);
+        
+        // 繪製邊框（可選）
+        if (fvg.showBorder) {
+            ctx.strokeStyle = fvg.borderColor;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, width, height);
+        }
+    }
+    
+    updateFVGs(fvgs, currentTimeframe = 'M15') {
+        const timeStep = this.getTimeStep(currentTimeframe);
+        
+        this.fvgs = fvgs.map(fvg => {
+            const startTime = fvg.left_time || fvg.time;
+            const endTime = fvg.clear_time || (startTime + 40 * timeStep);
+            
+            return {
+                startTime: startTime,
+                endTime: endTime,
+                upper: Math.max(fvg.top, fvg.bot),
+                lower: Math.min(fvg.top, fvg.bot),
+                fillColor: this.getFVGColor(fvg.type, 0.15),
+                borderColor: this.getFVGColor(fvg.type, 0.3),
+                showBorder: true,
+                type: fvg.type,
+                id: fvg.id
+            };
+        });
+        
+        // 觸發重繪
+        this.requestUpdate();
+    }
+    
+    getFVGColor(type, opacity) {
+        const colors = {
+            bull: `rgba(76, 175, 80, ${opacity})`,   // 綠色
+            bear: `rgba(244, 67, 54, ${opacity})`    // 紅色
+        };
+        return colors[type] || colors.bull;
+    }
+    
+    getTimeStep(timeframe) {
+        const steps = {
+            'M1': 60,
+            'M5': 300,
+            'M15': 900,
+            'H1': 3600,
+            'H4': 14400,
+            'D1': 86400
+        };
+        return steps[timeframe] || 900;
+    }
+    
+    requestUpdate() {
+        if (this.series) {
+            this.series.update();
+        }
+    }
+}
+整合到FVGRenderer
+javascript// 修改 src/frontend/fvg-renderer.js
+
+class FVGRenderer {
+    constructor(chart, candlestickSeries) {
+        this.chart = chart;
+        this.candlestickSeries = candlestickSeries;
+        this.isVisible = true;
+        
+        // 初始化自定義渲染器
+        this.customRenderer = new FVGCustomRenderer(chart);
+        this.customSeries = null;
+    }
+    
+    render(fvgs, currentTimeframe = 'M15', playbackMode = false) {
+        // 清除舊的
+        this.clearAll();
+        
+        if (!this.isVisible || !fvgs || fvgs.length === 0) {
+            return;
+        }
+        
+        // 過濾太小的FVG
+        const filteredFvgs = fvgs.filter(fvg => {
+            const height = Math.abs(fvg.top - fvg.bot);
+            return height >= 1.0;
+        });
+        
+        try {
+            // 創建自定義系列
+            const renderer = this.customRenderer.createRenderer();
+            
+            // 使用插件API（如果可用）
+            if (this.chart.addCustomSeries) {
+                this.customSeries = this.chart.addCustomSeries(renderer);
+            } else {
+                // 備用方案：使用原始插件
+                this.customSeries = this.createPluginSeries(renderer);
+            }
+            
+            // 更新數據
+            this.customRenderer.updateFVGs(filteredFvgs, currentTimeframe);
+            
+        } catch (error) {
+            console.error('Custom renderer failed, falling back:', error);
+            // 降級到備用方案
+            this.renderFallback(filteredFvgs, currentTimeframe);
+        }
+    }
+    
+    // 備用方案：使用價格線組合
+    renderFallback(fvgs, timeframe) {
+        fvgs.forEach(fvg => {
+            this.createFallbackFVG(fvg, timeframe);
+        });
+    }
+    
+    createFallbackFVG(fvg, timeframe) {
+        const upper = Math.max(fvg.top, fvg.bot);
+        const lower = Math.min(fvg.top, fvg.bot);
+        const startTime = fvg.left_time || fvg.time;
+        const timeStep = this.getTimeStep(timeframe);
+        
+        // 使用價格線創建水平線
+        const lines = [];
+        const lineCount = Math.min(20, Math.ceil((upper - lower) / 0.5));
+        
+        for (let i = 0; i <= lineCount; i++) {
+            const price = lower + ((upper - lower) * i / lineCount);
+            
+            const lineSeries = this.chart.addLineSeries({
+                color: this.getFVGColor(fvg.type, 0.1),
+                lineWidth: Math.max(1, (upper - lower) / lineCount * 2),
+                lineStyle: 0, // Solid
+                priceScaleId: 'right',
+                lastValueVisible: false,
+                priceLineVisible: false,
+            });
+            
+            // 只需要兩個點
+            const data = [
+                { time: startTime, value: price },
+                { time: startTime + 40 * timeStep, value: price }
+            ];
+            
+            lineSeries.setData(data);
+            lines.push(lineSeries);
+        }
+        
+        // 儲存所有線
+        lines.forEach(line => {
+            this.fvgSeries.push({ series: line, type: 'fallback', fvgId: fvg.id });
+        });
+    }
+    
+    createPluginSeries(renderer) {
+        // 直接掛載到圖表的插件系統
+        const plugin = {
+            renderer: renderer,
+            update: () => {
+                this.chart.applyOptions({}); // 觸發重繪
+            }
+        };
+        
+        // 註冊插件
+        if (!this.chart._fvgPlugins) {
+            this.chart._fvgPlugins = [];
+            
+            // 掛勾到圖表的渲染循環
+            const originalRender = this.chart._private__chartWidget._renderer.render;
+            this.chart._private__chartWidget._renderer.render = function(...args) {
+                originalRender.apply(this, args);
+                
+                // 渲染自定義內容
+                if (window.app?.chart?._fvgPlugins) {
+                    window.app.chart._fvgPlugins.forEach(p => {
+                        if (p.renderer && p.renderer.draw) {
+                            const canvas = this._private__paneWidgets[0]._canvasBinding.canvas;
+                            const ctx = canvas.getContext('2d');
+                            p.renderer.draw({
+                                context: ctx,
+                                bitmapSize: { width: canvas.width, height: canvas.height },
+                                mediaSize: { width: canvas.clientWidth, height: canvas.clientHeight },
+                                horizontalPixelRatio: window.devicePixelRatio || 1,
+                                verticalPixelRatio: window.devicePixelRatio || 1,
+                                timeScale: this._private__timeScale,
+                                priceScale: this._private__priceSales.get('right')
+                            });
+                        }
+                    });
+                }
+            };
+        }
+        
+        this.chart._fvgPlugins.push(plugin);
+        return plugin;
+    }
+}
+縮放測試函數
+javascript// 測試縮放行為
+function testFVGScaling() {
+    // 創建測試FVG
+    const testFVG = {
+        id: 'scale-test',
+        type: 'bull',
+        top: 13300,
+        bot: 13250,
+        left_time: Date.now() / 1000 - 7200,
+        time: Date.now() / 1000 - 7200
+    };
+    
+    // 渲染FVG
+    window.app.chartManager.fvgRenderer.render([testFVG], 'M15');
+    
+    // 測試不同縮放級別
+    setTimeout(() => {
+        console.log('測試時間軸縮放...');
+        window.app.chart.timeScale().setVisibleRange({
+            from: Date.now() / 1000 - 10800,
+            to: Date.now() / 1000
+        });
+    }, 1000);
+    
+    setTimeout(() => {
+        console.log('測試價格軸縮放...');
+        window.app.chart.priceScale('right').applyOptions({
+            autoScale: false,
+            scaleRange: {
+                minValue: 13200,
+                maxValue: 13400
+            }
+        });
+    }, 2000);
+    
+    setTimeout(() => {
+        console.log('恢復自動縮放...');
+        window.app.chart.priceScale('right').applyOptions({
+            autoScale: true
+        });
+    }, 3000);
+}
