@@ -1,6 +1,9 @@
 // 檔名：config.js - 系統配置常數
 
 const CONFIG = {
+    // 系統配置
+    DEBUG: false,              // 調試模式開關
+    
     // FVG 相關配置
     FVG: {
         DISPLAY_LENGTH: 40,        // FVG顯示長度（K線數量）

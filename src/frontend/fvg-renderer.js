@@ -28,19 +28,28 @@ class FVGRenderer {
      * 繪製FVG列表
      */
     render(fvgs, currentTimeframe, playbackMode = false) {
-        console.log('FVGRenderer.render - 收到', fvgs?.length || 0, '個FVG');
-        console.log('顯示狀態:', this.isVisible);
+        // 調試模式下顯示渲染信息
+        if (window.CONFIG?.DEBUG) {
+            console.log('FVGRenderer.render - 收到', fvgs?.length || 0, '個FVG');
+            console.log('顯示狀態:', this.isVisible);
+        }
         
         this.clearAll();
         
         if (!this.isVisible || !fvgs || fvgs.length === 0) {
-            console.log('跳過FVG渲染 - 不可見或無數據');
+            if (window.CONFIG?.DEBUG) {
+                console.log('跳過FVG渲染 - 不可見或無數據');
+            }
             return;
         }
 
-        console.log('開始渲染', fvgs.length, '個FVG');
+        if (window.CONFIG?.DEBUG) {
+            console.log('開始渲染', fvgs.length, '個FVG');
+        }
         fvgs.forEach((fvg, index) => {
-            console.log(`渲染FVG ${index}:`, fvg);
+            if (window.CONFIG?.DEBUG) {
+                console.log(`渲染FVG ${index}:`, fvg);
+            }
             this.renderSingle(fvg, index, currentTimeframe);
         });
     }
