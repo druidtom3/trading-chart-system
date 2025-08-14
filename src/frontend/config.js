@@ -8,6 +8,10 @@ const CONFIG = {
     FVG: {
         DISPLAY_LENGTH: 40,        // FVG顯示長度（K線數量）
         DETECTION_RANGE: 400,      // FVG檢測範圍（開盤前K線數）
+        REQUIRE_DIR_CONTINUITY: false,  // 是否要求方向連續性
+        FILL_MODE: "single",       // 回補模式：single, multi_strict
+        CONFIRM_ON_CLOSE: false,   // 是否需要收盤確認
+        TICK_EPS: 0.0,            // tick精度容差
         OPACITY: 0.25,             // 填充透明度
         MAX_LINES: 60,             // 最大填充線條數
         FALLBACK_LINES: 12,        // 退路線條數

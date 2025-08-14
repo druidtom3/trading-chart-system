@@ -39,4 +39,4 @@ NYSE_OPEN_MINUTE = 30
 # Flask 設定
 FLASK_HOST = '127.0.0.1'
 FLASK_PORT = 5000
-FLASK_DEBUG = True
+FLASK_DEBUG = False  # 生產環境應該設為False
