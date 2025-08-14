@@ -197,6 +197,22 @@
                         <div class="spinner"></div>
                         <p>正在載入圖表資料...</p>
                     </div>
+                    <!-- 後端載入進度顯示 (暫時隱藏) -->
+                    <div id="backend-loading" class="backend-loading" style="display: none !important;">
+                        <div class="backend-loading-content">
+                            <h3>系統啟動中...</h3>
+                            <div class="progress-container">
+                                <div id="progress-bar" class="progress-bar"></div>
+                            </div>
+                            <div class="progress-info">
+                                <span id="progress-text">檢查系統狀態...</span>
+                                <span id="progress-percent">0%</span>
+                            </div>
+                            <div id="progress-steps" class="progress-steps">
+                                <div class="step">正在載入資料...</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- 狀態列 -->
@@ -265,18 +281,29 @@
         
         // 載入多個腳本的輔助函數
         function loadModules(modules, callback) {
+            console.log(`開始載入 ${modules.length} 個模組`);
             let loaded = 0;
+            
+            if (modules.length === 0) {
+                console.log('沒有模組需要載入');
+                callback();
+                return;
+            }
+            
             modules.forEach(module => {
+                console.log(`正在載入模組: ${module}`);
                 const script = document.createElement('script');
                 script.src = module;
                 script.onload = () => {
                     loaded++;
+                    console.log(`模組載入成功 (${loaded}/${modules.length}): ${module}`);
                     if (loaded === modules.length) {
+                        console.log('所有模組載入完成，執行回調');
                         callback();
                     }
                 };
-                script.onerror = () => {
-                    console.error(`模組載入失敗: ${module}`);
+                script.onerror = (error) => {
+                    console.error(`模組載入失敗: ${module}`, error);
                     alert(`系統模組載入失敗: ${module}`);
                 };
                 document.head.appendChild(script);
@@ -293,11 +320,23 @@
                 
                 aggregatorScript.onload = () => {
                     console.log('CandleAggregator 載入成功');
+                    console.log('開始載入其他模組...');
+                    
                     // 載入配置和管理器模組
-                    loadModules(['config.js', 'fvg-renderer.js', 'chart-manager.js', 'data-manager.js', 'playback-manager.js', 'event-manager.js'], () => {
+                    const modules = ['config.js', 'fvg-renderer.js', 'chart-manager.js', 'data-manager.js', 'playback-manager.js', 'event-manager.js'];
+                    console.log('要載入的模組:', modules);
+                    
+                    loadModules(modules, () => {
+                        console.log('所有模組載入完成，開始載入主程式 script-v2.js');
                         // 最後載入主程式 - 使用新的 script-v2.js
                         const script = document.createElement('script');
                         script.src = 'script-v2.js';
+                        script.onload = () => {
+                            console.log('script-v2.js 載入成功');
+                        };
+                        script.onerror = (error) => {
+                            console.error('script-v2.js 載入失敗:', error);
+                        };
                         document.head.appendChild(script);
                     });
                 };

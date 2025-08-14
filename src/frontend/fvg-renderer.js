@@ -27,10 +27,11 @@ class FVGRenderer {
     /**
      * 繪製FVG列表
      */
-    render(fvgs, currentTimeframe, playbackMode = false) {
+    render(fvgs, currentTimeframe = 'M15', playbackMode = false) {
         // 調試模式下顯示渲染信息
         if (window.CONFIG?.DEBUG) {
             console.log('FVGRenderer.render - 收到', fvgs?.length || 0, '個FVG');
+            console.log('當前時間刻度:', currentTimeframe);
             console.log('顯示狀態:', this.isVisible);
         }
         
@@ -43,10 +44,26 @@ class FVGRenderer {
             return;
         }
 
+        // 過濾掉太小的FVG（高度小於1點的）
+        const filteredFvgs = fvgs.filter(fvg => {
+            const height = Math.abs(fvg.top - fvg.bot);
+            return height >= 1.0; // 最小高度過濾器
+        });
+
         if (window.CONFIG?.DEBUG) {
-            console.log('開始渲染', fvgs.length, '個FVG');
+            console.log('過濾後FVG數量:', filteredFvgs.length, '(原:', fvgs.length, ')');
         }
-        fvgs.forEach((fvg, index) => {
+
+        // 確保時間刻度正確
+        if (!currentTimeframe) {
+            console.warn('FVG渲染: 未提供時間刻度，使用預設M15');
+            currentTimeframe = 'M15';
+        }
+
+        if (window.CONFIG?.DEBUG) {
+            console.log('開始渲染', filteredFvgs.length, '個FVG，時間刻度:', currentTimeframe);
+        }
+        filteredFvgs.forEach((fvg, index) => {
             if (window.CONFIG?.DEBUG) {
                 console.log(`渲染FVG ${index}:`, fvg);
             }
@@ -66,43 +83,81 @@ class FVGRenderer {
         const timeStep = ConfigUtils.getTimeframeSeconds(currentTimeframe);
         const maxExtendTime = startTime + (CONFIG.FVG.DISPLAY_LENGTH * timeStep);
         
-        // 使用簡化的LineSeries方式繪製FVG填充
-        this.createSimpleFVGFill(fvg.type, startTime, maxExtendTime, upper, lower, fvg.id);
+        // 使用矩形方式繪製FVG
+        this.createRectangleFVG(fvg.type, startTime, maxExtendTime, upper, lower, fvg.id);
     }
 
     /**
-     * 創建簡化的FVG填充
+     * 使用矩形創建FVG（性能優化版本）
      */
-    createSimpleFVGFill(type, startTime, endTime, upper, lower, fvgId) {
+    createRectangleFVG(type, startTime, endTime, upper, lower, fvgId) {
         const height = upper - lower;
-        const lineCount = Math.min(CONFIG.FVG.MAX_LINES, Math.max(CONFIG.FVG.FALLBACK_LINES, Math.floor(height / 0.25))); // 每0.25點一條線
         
-        const timeData = [
-            { time: startTime, value: 0 },
-            { time: endTime, value: 0 }
-        ];
-
-        // 創建多條水平線模擬填充
-        for (let i = 0; i <= lineCount; i++) {
-            const price = lower + (height * i / lineCount);
-            
-            const fillLineData = timeData.map(point => ({
-                time: point.time,
-                value: price
-            }));
-            
-            const fillLine = this.chart.addLineSeries({
-                color: ConfigUtils.getFVGColor(type),
-                lineWidth: CONFIG.FVG.LINE_WIDTH,
-                lineStyle: LightweightCharts.LineStyle.Solid,
-                priceScaleId: 'right',
-                lastValueVisible: false,
-                priceLineVisible: false,
-            });
-            
-            fillLine.setData(fillLineData);
-            this.fvgSeries.push({ series: fillLine, type: 'fill', fvgId: fvgId });
+        // 調整透明度：加深顏色讓FVG更明顯
+        let opacity;
+        if (height > 20.0) {
+            opacity = Math.min(0.25, 0.15 + ((height - 20.0) / 30.0) * 0.1); // >20點: 0.15到0.25
+        } else {
+            opacity = 0.12; // <=20點: 統一0.12 (比原來的0.08深)
         }
+        
+        // 創建上邊界線
+        const topLine = this.chart.addLineSeries({
+            color: ConfigUtils.getFVGColor(type, opacity),
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            priceScaleId: 'right',
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+        });
+        
+        // 創建下邊界線
+        const bottomLine = this.chart.addLineSeries({
+            color: ConfigUtils.getFVGColor(type, opacity),
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            priceScaleId: 'right',
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+        });
+        
+        // 創建填充區域（使用兩條線中間的區域）
+        const fillArea = this.chart.addLineSeries({
+            color: ConfigUtils.getFVGColor(type, opacity * 0.5), // 填充用更淡的顏色
+            lineWidth: Math.max(1, Math.floor(height)), // 線寬度等於FVG高度
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            priceScaleId: 'right',
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+        });
+        
+        // 設定數據
+        const topData = [
+            { time: startTime, value: upper },
+            { time: endTime, value: upper }
+        ];
+        
+        const bottomData = [
+            { time: startTime, value: lower },
+            { time: endTime, value: lower }
+        ];
+        
+        const middleData = [
+            { time: startTime, value: (upper + lower) / 2 },
+            { time: endTime, value: (upper + lower) / 2 }
+        ];
+        
+        topLine.setData(topData);
+        bottomLine.setData(bottomData);
+        fillArea.setData(middleData);
+        
+        // 儲存系列以便之後清除
+        this.fvgSeries.push({ series: topLine, type: 'rectangle-top', fvgId: fvgId });
+        this.fvgSeries.push({ series: bottomLine, type: 'rectangle-bottom', fvgId: fvgId });
+        this.fvgSeries.push({ series: fillArea, type: 'rectangle-fill', fvgId: fvgId });
     }
 
     /**

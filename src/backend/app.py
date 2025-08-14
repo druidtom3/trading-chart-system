@@ -17,8 +17,16 @@ from backend.data_processor import DataProcessor
 app = Flask(__name__)
 CORS(app)
 
-# 全域資料處理器
+# 全域資料處理器和狀態管理
 data_processor = DataProcessor()
+loading_status = {
+    'is_loading': True,
+    'progress': 0,
+    'current_step': '準備載入資料...',
+    'total_steps': 6,
+    'completed_steps': 0,
+    'error': None
+}
 
 @app.route('/')
 def index():
@@ -149,11 +157,42 @@ def get_date_continuity(date, timeframe):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/loading-status')
+def get_loading_status():
+    """取得載入狀態"""
+    return jsonify(loading_status)
+
+def update_loading_status(step, progress, current_step):
+    """更新載入狀態"""
+    global loading_status
+    loading_status.update({
+        'completed_steps': step,
+        'progress': progress,
+        'current_step': current_step
+    })
+
 if __name__ == '__main__':
     print("=== 交易圖表系統啟動中 ===")
     
+    # 更新載入狀態
+    update_loading_status(0, 0, "開始載入資料...")
+    
     # 載入資料
-    data_processor.load_all_data()
+    try:
+        data_processor.load_all_data()
+        # 載入完成
+        loading_status.update({
+            'is_loading': False,
+            'progress': 100,
+            'current_step': '載入完成',
+            'completed_steps': 6
+        })
+    except Exception as e:
+        loading_status.update({
+            'is_loading': False,
+            'error': str(e),
+            'current_step': f'載入失敗: {str(e)}'
+        })
     
     print(f"伺服器啟動於: http://{FLASK_HOST}:{FLASK_PORT}")
     print("請在瀏覽器開啟上述網址")

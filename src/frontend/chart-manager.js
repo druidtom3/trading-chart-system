@@ -144,6 +144,77 @@ class ChartManager {
     }
 
     /**
+     * 更新FVG顯示
+     */
+    updateFVGs(fvgs, currentTimeframe = 'M15') {
+        if (this.fvgRenderer) {
+            this.fvgRenderer.render(fvgs, currentTimeframe);
+        }
+    }
+
+    /**
+     * 切換FVG顯示狀態
+     */
+    toggleFVG() {
+        if (this.fvgRenderer) {
+            return this.fvgRenderer.toggle();
+        }
+        return false;
+    }
+
+    /**
+     * 開始畫線模式
+     */
+    startDrawingMode() {
+        this.isDrawingLine = true;
+        console.log('進入畫線模式');
+    }
+
+    /**
+     * 停止畫線模式
+     */
+    stopDrawingMode() {
+        this.isDrawingLine = false;
+        console.log('退出畫線模式');
+    }
+
+    /**
+     * 清除所有手動線
+     */
+    clearAllLines() {
+        this.manualLines.forEach(line => {
+            this.candlestickSeries.removePriceLine(line);
+        });
+        this.manualLines = [];
+        console.log('清除所有手動線');
+    }
+
+    /**
+     * 添加水平線
+     */
+    addHorizontalLine(param) {
+        if (!param.point) return;
+        
+        const price = this.candlestickSeries.coordinateToPrice(param.point.y);
+        if (price === null) return;
+        
+        const line = this.candlestickSeries.createPriceLine({
+            price: price,
+            color: CONFIG.COLORS.MANUAL_LINE || '#2196F3',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: `手動線 ${this.manualLines.length + 1}`
+        });
+        
+        this.manualLines.push(line);
+        console.log(`添加手動線於價格: ${price}`);
+        
+        // 自動退出畫線模式
+        this.stopDrawingMode();
+    }
+
+    /**
      * 處理響應式調整
      */
     handleResize() {

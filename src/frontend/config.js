@@ -12,8 +12,8 @@ const CONFIG = {
         // V3版本簡化後保留的參數
         DISPLAY_LENGTH: 40,        // FVG顯示長度（K線數量）- V3中與MAX_DISPLAY_LENGTH相同
         OPACITY: 0.25,             // 填充透明度
-        MAX_LINES: 60,             // 最大填充線條數
-        FALLBACK_LINES: 12,        // 退路線條數
+        MAX_LINES: 8,              // 最大填充線條數（降低以提升性能）
+        FALLBACK_LINES: 3,         // 退路線條數（降低以提升性能）
         LINE_WIDTH: 1,             // 線條寬度
         GAP_WIDTH: 2,              // 線條間隔
         
