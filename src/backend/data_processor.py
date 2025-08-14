@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 from utils.config import DATA_DIR, CSV_FILES, DEFAULT_CANDLE_COUNT, LOG_DIR
 from backend.time_utils import TimeConverter
 from backend.fvg_detector import FVGDetector
+from backend.fvg_detector_v3 import FVGDetectorV3
 from backend.us_holidays import holiday_detector
 from backend.candle_continuity_checker import CandleContinuityChecker
 
@@ -26,7 +27,8 @@ class DataProcessor:
         self.data_cache = {}  # {timeframe: DataFrame}
         self.time_converter = TimeConverter()
         self.available_dates = set()
-        self.fvg_detector = FVGDetector()  # 新增 FVG 檢測器
+        self.fvg_detector = FVGDetector()  # 舊版FVG檢測器
+        self.fvg_detector_v3 = FVGDetectorV3()  # V3版FVG檢測器（簡化精準版）
         self.vwap_available = {}  # 追蹤各時間框架是否有 VWAP 資料
         self.continuity_checker = CandleContinuityChecker()  # K線連續性檢查器（從2019-05-20開始檢查）
         self.continuity_reports = {}  # 儲存連續性檢查報告
@@ -174,7 +176,7 @@ class DataProcessor:
     
     def detect_fvgs(self, df: pd.DataFrame, timeframe: str) -> List[Dict]:
         """
-        檢測 FVG
+        檢測 FVG (使用V3檢測器)
         
         Args:
             df: DataFrame，包含 K 線資料
@@ -187,12 +189,20 @@ class DataProcessor:
             # 確保資料按時間排序
             df = df.sort_values('DateTime').reset_index(drop=True)
             
-            # 檢測 FVG
-            fvgs = self.fvg_detector.detect(df)
+            # 為V3檢測器準備數據格式（需要time列而不是DateTime）
+            df_v3 = df.copy()
+            if 'DateTime' in df_v3.columns:
+                df_v3['time'] = df_v3['DateTime'].astype('int64') // 10**9  # 轉換為Unix時間戳
             
-            print(f"   {timeframe} FVG 檢測: 發現 {len(fvgs)} 個有效 FVG")
+            # 使用V3檢測器
+            fvgs = self.fvg_detector_v3.detect_fvgs(df_v3)
             
-            return fvgs
+            # 格式化為前端格式
+            formatted_fvgs = self.fvg_detector_v3.format_fvgs_for_frontend(fvgs)
+            
+            print(f"   {timeframe} FVG V3檢測: 發現 {len(formatted_fvgs)} 個有效 FVG")
+            
+            return formatted_fvgs
             
         except Exception as e:
             logging.error(f"FVG 檢測失敗 ({timeframe}): {str(e)}")

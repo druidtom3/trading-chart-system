@@ -88,7 +88,7 @@ class FVGRenderer {
     }
 
     /**
-     * 使用矩形創建FVG（性能優化版本）
+     * 使用單一線系列創建FVG矩形效果
      */
     createRectangleFVG(type, startTime, endTime, upper, lower, fvgId) {
         const height = upper - lower;
@@ -101,9 +101,29 @@ class FVGRenderer {
             opacity = 0.12; // <=20點: 統一0.12 (比原來的0.08深)
         }
         
-        // 創建上邊界線
-        const topLine = this.chart.addLineSeries({
+        // 創建單一線系列，用加粗的線寬模擬矩形填充
+        const fvgLine = this.chart.addLineSeries({
             color: ConfigUtils.getFVGColor(type, opacity),
+            lineWidth: Math.max(2, Math.min(20, Math.floor(height * 0.8))), // 動態線寬，但有最大值限制
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            priceScaleId: 'right',
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+        });
+        
+        // 使用FVG中心位置繪製線條，讓線寬覆蓋整個FVG區域
+        const centerPrice = (upper + lower) / 2;
+        const lineData = [
+            { time: startTime, value: centerPrice },
+            { time: endTime, value: centerPrice }
+        ];
+        
+        fvgLine.setData(lineData);
+        
+        // 另外添加邊框線條以明確區域邊界
+        const topBorder = this.chart.addLineSeries({
+            color: ConfigUtils.getFVGColor(type, opacity * 1.5), // 邊框稍深
             lineWidth: 1,
             lineStyle: LightweightCharts.LineStyle.Solid,
             priceScaleId: 'right',
@@ -112,9 +132,8 @@ class FVGRenderer {
             crosshairMarkerVisible: false,
         });
         
-        // 創建下邊界線
-        const bottomLine = this.chart.addLineSeries({
-            color: ConfigUtils.getFVGColor(type, opacity),
+        const bottomBorder = this.chart.addLineSeries({
+            color: ConfigUtils.getFVGColor(type, opacity * 1.5), // 邊框稍深
             lineWidth: 1,
             lineStyle: LightweightCharts.LineStyle.Solid,
             priceScaleId: 'right',
@@ -123,18 +142,6 @@ class FVGRenderer {
             crosshairMarkerVisible: false,
         });
         
-        // 創建填充區域（使用兩條線中間的區域）
-        const fillArea = this.chart.addLineSeries({
-            color: ConfigUtils.getFVGColor(type, opacity * 0.5), // 填充用更淡的顏色
-            lineWidth: Math.max(1, Math.floor(height)), // 線寬度等於FVG高度
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            priceScaleId: 'right',
-            lastValueVisible: false,
-            priceLineVisible: false,
-            crosshairMarkerVisible: false,
-        });
-        
-        // 設定數據
         const topData = [
             { time: startTime, value: upper },
             { time: endTime, value: upper }
@@ -145,19 +152,13 @@ class FVGRenderer {
             { time: endTime, value: lower }
         ];
         
-        const middleData = [
-            { time: startTime, value: (upper + lower) / 2 },
-            { time: endTime, value: (upper + lower) / 2 }
-        ];
+        topBorder.setData(topData);
+        bottomBorder.setData(bottomData);
         
-        topLine.setData(topData);
-        bottomLine.setData(bottomData);
-        fillArea.setData(middleData);
-        
-        // 儲存系列以便之後清除
-        this.fvgSeries.push({ series: topLine, type: 'rectangle-top', fvgId: fvgId });
-        this.fvgSeries.push({ series: bottomLine, type: 'rectangle-bottom', fvgId: fvgId });
-        this.fvgSeries.push({ series: fillArea, type: 'rectangle-fill', fvgId: fvgId });
+        // 儲存所有系列以便之後清除
+        this.fvgSeries.push({ series: fvgLine, type: 'rectangle-fill', fvgId: fvgId });
+        this.fvgSeries.push({ series: topBorder, type: 'rectangle-top-border', fvgId: fvgId });
+        this.fvgSeries.push({ series: bottomBorder, type: 'rectangle-bottom-border', fvgId: fvgId });
     }
 
     /**

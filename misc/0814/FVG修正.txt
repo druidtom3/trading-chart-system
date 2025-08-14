@@ -1,0 +1,117 @@
+問題分析報告
+根據我對你的程式碼的分析，我發現了FVG顯示問題的根本原因：
+🔍 核心問題
+
+後端邏輯正確但可能有混淆
+
+fvg_detector.py 中實際上有正確的分離：
+
+left_idx: 用於前端顯示起點（左K線索引 L）
+idx (confirm_idx): 用於回補檢測起點（右K線索引 R）
+
+
+但是前端可能沒有正確使用 left_idx
+
+
+時間戳與索引的混用
+
+後端返回 left_time 和 time 兩個時間戳
+前端可能使用了錯誤的時間戳來定位FVG起始位置
+
+
+
+📋 完整修復方案
+執行步驟（給Claude Code CLI）
+步驟 1：確認後端邏輯
+檢查 src/backend/fvg_detector.py 的 _create_fvg 函數：
+python# 確保這個函數正確設置了：
+# - left_idx: 左K線索引（用於顯示）
+# - idx: 右K線索引（用於檢測）
+# - left_time: 左K線的時間戳
+# - time: FVG誕生時的時間戳
+步驟 2：檢查前端渲染邏輯
+需要檢查以下檔案（可能存在但我無法訪問）：
+
+src/frontend/fvg-renderer.js
+src/frontend/chart-manager.js
+
+關鍵修改點：
+javascript// 錯誤的做法（可能現在的問題）：
+// 使用 fvg.idx 或 fvg.time 來定位起始點
+
+// 正確的做法：
+// 使用 fvg.left_idx 或 fvg.left_time 來定位起始點
+
+// 範例修正：
+function drawFVGBox(fvg, candleData) {
+    // 找到left_idx對應的K線
+    const leftCandle = candleData[fvg.left_idx];
+    // 或使用時間戳
+    const leftCandle = candleData.find(c => c.time === fvg.left_time);
+    
+    // 從leftCandle的位置開始繪製矩形
+    const startX = leftCandle.x; // 或對應的座標
+    const endX = startX + (40 * candleWidth); // 延伸40根K線
+    
+    // 繪製矩形
+    drawRectangle(startX, fvg.bot, endX, fvg.top);
+}
+步驟 3：驗證價格區間
+確保價格區間正確：
+
+多頭FVG: 下邊界=L.High, 上邊界=R.Low
+空頭FVG: 下邊界=R.High, 上邊界=L.Low
+
+步驟 4：測試驗證
+創建測試案例驗證修復：
+python# test_fvg_display.py
+# 測試FVG是否從正確的位置開始顯示
+def test_fvg_display_position():
+    # 創建測試數據
+    # 驗證left_idx和left_time是否正確
+    # 驗證前端是否使用了正確的起始點
+    pass
+🚨 最可能的問題根源
+基於圖片中的問題（FVG矩形位置不對），最可能的原因是：
+
+前端使用了 fvg.idx 而不是 fvg.left_idx
+前端使用了 fvg.time 而不是 fvg.left_time
+
+📝 給Claude Code的具體指令
+bash# 1. 首先檢查前端渲染邏輯
+查找所有使用 fvg.idx 或 fvg.time 來定位FVG起始位置的地方
+將它們改為使用 fvg.left_idx 或 fvg.left_time
+
+# 2. 搜尋關鍵詞
+在 src/frontend/ 下搜尋：
+- "fvg.idx"
+- "fvg.time"
+- "drawFVG"
+- "renderFVG"
+- "createBox"
+
+# 3. 修改範例
+找到類似這樣的程式碼：
+const startIndex = fvg.idx;  // 錯誤
+改為：
+const startIndex = fvg.left_idx;  // 正確
+
+# 4. 驗證資料流
+確保從後端到前端的資料流正確：
+後端 -> API response -> 前端解析 -> 渲染
+檢查每一步是否正確傳遞和使用 left_idx/left_time
+
+# 5. 測試
+修改後，測試以下場景：
+- 多頭FVG是否從L開始
+- 空頭FVG是否從L開始
+- FVG的寬度是否正確（40根K線或直到清除）
+🔧 快速修復檢查清單
+
+✅ 後端 fvg_detector.py 已經正確設置 left_idx
+❓ 前端是否使用 left_idx 而非 idx
+❓ 前端是否使用 left_time 而非 time
+❓ 座標轉換是否正確（K線索引 → 圖表X座標）
+❓ 價格映射是否正確（價格值 → 圖表Y座標）
+
+這個分析應該能幫助Claude Code準確定位並修復FVG顯示問題。關鍵是確保前端使用正確的起始點（left_idx/left_time）而不是檢測點（idx/time）。
