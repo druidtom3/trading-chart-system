@@ -1,0 +1,329 @@
+問題分析
+從你的截圖和代碼看，問題很清楚：
+現狀問題
+
+目前使用多條線系列方案 (fvg-renderer.js 的 createRectangleFVG)
+縮放時線條間隙變大，因為只有固定數量的線（8條）
+不是真正的矩形，而是嘗試用線條模擬
+
+版本確認
+
+使用 Lightweight Charts v4.1.3（從 index.html 看到）
+Lightweight Charts v4 不支持 addCustomSeries API（這是v5的功能）
+
+完整解決方案
+由於你使用的是 Lightweight Charts v4，我提供三個可行方案：
+方案A：使用Series Markers（最穩定）
+javascript// 修改 src/frontend/fvg-renderer.js
+
+class FVGRenderer {
+    constructor(chart, candlestickSeries) {
+        this.chart = chart;
+        this.candlestickSeries = candlestickSeries;
+        this.fvgSeries = [];
+        this.isVisible = true;
+        this.fvgShapes = []; // 儲存形狀標記
+    }
+
+    render(fvgs, currentTimeframe = 'M15', playbackMode = false) {
+        this.clearAll();
+        
+        if (!this.isVisible || !fvgs || fvgs.length === 0) {
+            return;
+        }
+
+        // 使用區域系列來模擬矩形
+        fvgs.forEach(fvg => {
+            this.createAreaBasedFVG(fvg, currentTimeframe);
+        });
+    }
+
+    createAreaBasedFVG(fvg, timeframe) {
+        const upper = Math.max(fvg.top, fvg.bot);
+        const lower = Math.min(fvg.top, fvg.bot);
+        const startTime = fvg.left_time || fvg.time;
+        const timeStep = ConfigUtils.getTimeframeSeconds(timeframe);
+        const endTime = startTime + (40 * timeStep);
+        
+        // 創建區域系列
+        const areaSeries = this.chart.addAreaSeries({
+            topColor: ConfigUtils.getFVGColor(fvg.type, 0.2),
+            bottomColor: ConfigUtils.getFVGColor(fvg.type, 0.1),
+            lineColor: ConfigUtils.getFVGColor(fvg.type, 0.4),
+            lineWidth: 1,
+            priceScaleId: 'right',
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+            baseLineVisible: false,
+        });
+
+        // 創建密集的數據點來模擬實心矩形
+        const data = [];
+        const pointCount = 100; // 使用100個點確保密度
+        
+        for (let i = 0; i <= pointCount; i++) {
+            const time = Math.floor(startTime + (endTime - startTime) * (i / pointCount));
+            data.push({
+                time: time,
+                value: upper
+            });
+        }
+        
+        areaSeries.setData(data);
+        
+        // 設置基線為FVG底部（創建填充效果）
+        areaSeries.applyOptions({
+            baseLineStyle: {
+                color: 'transparent',
+                lineWidth: 0,
+            },
+            baseValue: {
+                type: 'price',
+                price: lower
+            }
+        });
+        
+        this.fvgSeries.push({ 
+            series: areaSeries, 
+            type: 'area', 
+            fvgId: fvg.id 
+        });
+    }
+}
+方案B：Canvas Overlay（最靈活，完美縮放）
+javascript// 新文件：src/frontend/fvg-canvas-overlay.js
+
+class FVGCanvasOverlay {
+    constructor(chart, candlestickSeries) {
+        this.chart = chart;
+        this.candlestickSeries = candlestickSeries;
+        this.fvgs = [];
+        this.canvas = null;
+        this.ctx = null;
+        
+        this.initCanvas();
+        this.bindEvents();
+    }
+    
+    initCanvas() {
+        // 獲取圖表容器
+        const chartElement = this.chart._private__chartWidget._container;
+        const chartRect = chartElement.getBoundingClientRect();
+        
+        // 創建覆蓋層 canvas
+        this.canvas = document.createElement('canvas');
+        this.canvas.style.position = 'absolute';
+        this.canvas.style.top = '0';
+        this.canvas.style.left = '0';
+        this.canvas.style.pointerEvents = 'none';
+        this.canvas.style.zIndex = '1';
+        
+        // 設置尺寸
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = chartRect.width * dpr;
+        this.canvas.height = chartRect.height * dpr;
+        this.canvas.style.width = chartRect.width + 'px';
+        this.canvas.style.height = chartRect.height + 'px';
+        
+        this.ctx = this.canvas.getContext('2d');
+        this.ctx.scale(dpr, dpr);
+        
+        // 插入到圖表容器中
+        chartElement.style.position = 'relative';
+        chartElement.appendChild(this.canvas);
+    }
+    
+    bindEvents() {
+        // 監聽圖表更新事件
+        const timeScale = this.chart.timeScale();
+        const priceScale = this.chart.priceScale('right');
+        
+        // 時間軸變化時重繪
+        timeScale.subscribeVisibleTimeRangeChange(() => {
+            this.redraw();
+        });
+        
+        // 價格軸變化時重繪
+        priceScale.subscribeVisiblePriceRangeChange(() => {
+            this.redraw();
+        });
+        
+        // 視窗大小變化時調整
+        window.addEventListener('resize', () => {
+            this.resizeCanvas();
+            this.redraw();
+        });
+    }
+    
+    resizeCanvas() {
+        const chartElement = this.chart._private__chartWidget._container;
+        const chartRect = chartElement.getBoundingClientRect();
+        
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = chartRect.width * dpr;
+        this.canvas.height = chartRect.height * dpr;
+        this.canvas.style.width = chartRect.width + 'px';
+        this.canvas.style.height = chartRect.height + 'px';
+        
+        this.ctx.scale(dpr, dpr);
+    }
+    
+    updateFVGs(fvgs, timeframe = 'M15') {
+        const timeStep = ConfigUtils.getTimeframeSeconds(timeframe);
+        
+        this.fvgs = fvgs.map(fvg => ({
+            startTime: fvg.left_time || fvg.time,
+            endTime: (fvg.left_time || fvg.time) + 40 * timeStep,
+            upper: Math.max(fvg.top, fvg.bot),
+            lower: Math.min(fvg.top, fvg.bot),
+            type: fvg.type,
+            id: fvg.id
+        }));
+        
+        this.redraw();
+    }
+    
+    redraw() {
+        // 清除畫布
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        const timeScale = this.chart.timeScale();
+        const priceScale = this.chart.priceScale('right');
+        
+        // 繪製每個FVG
+        this.fvgs.forEach(fvg => {
+            // 轉換座標
+            const x1 = timeScale.timeToCoordinate(fvg.startTime);
+            const x2 = timeScale.timeToCoordinate(fvg.endTime);
+            const y1 = priceScale.priceToCoordinate(fvg.upper);
+            const y2 = priceScale.priceToCoordinate(fvg.lower);
+            
+            if (x1 === null || x2 === null || y1 === null || y2 === null) {
+                return;
+            }
+            
+            // 計算矩形
+            const x = Math.min(x1, x2);
+            const y = Math.min(y1, y2);
+            const width = Math.abs(x2 - x1);
+            const height = Math.abs(y2 - y1);
+            
+            // 跳過太小的矩形
+            if (width < 1 || height < 1) {
+                return;
+            }
+            
+            // 設置顏色
+            const baseColor = fvg.type === 'bull' ? 
+                'rgba(76, 175, 80, 0.2)' : 
+                'rgba(244, 67, 54, 0.2)';
+            const borderColor = fvg.type === 'bull' ? 
+                'rgba(76, 175, 80, 0.4)' : 
+                'rgba(244, 67, 54, 0.4)';
+            
+            // 繪製填充
+            this.ctx.fillStyle = baseColor;
+            this.ctx.fillRect(x, y, width, height);
+            
+            // 繪製邊框
+            this.ctx.strokeStyle = borderColor;
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(x, y, width, height);
+        });
+    }
+    
+    clear() {
+        this.fvgs = [];
+        this.redraw();
+    }
+    
+    destroy() {
+        if (this.canvas) {
+            this.canvas.remove();
+        }
+    }
+}
+
+// 整合到 FVGRenderer
+class FVGRenderer {
+    constructor(chart, candlestickSeries) {
+        this.chart = chart;
+        this.candlestickSeries = candlestickSeries;
+        this.overlay = new FVGCanvasOverlay(chart, candlestickSeries);
+        this.isVisible = true;
+    }
+    
+    render(fvgs, currentTimeframe = 'M15') {
+        if (!this.isVisible || !fvgs || fvgs.length === 0) {
+            this.overlay.clear();
+            return;
+        }
+        
+        this.overlay.updateFVGs(fvgs, currentTimeframe);
+    }
+    
+    clearAll() {
+        this.overlay.clear();
+    }
+    
+    toggle() {
+        this.isVisible = !this.isVisible;
+        if (!this.isVisible) {
+            this.clearAll();
+        }
+        return this.isVisible;
+    }
+}
+方案C：升級到 Lightweight Charts v5（最佳長期方案）
+html<!-- 修改 src/frontend/index.html -->
+<!-- 替換為 v5 -->
+<script src="https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js"></script>
+然後使用真正的 Custom Series API：
+javascript// 使用 v5 的 Custom Series
+class FVGCustomSeries {
+    constructor(chart) {
+        this.chart = chart;
+        this.fvgs = [];
+    }
+    
+    createSeries() {
+        return this.chart.addCustomSeries({
+            name: 'FVG',
+            
+            priceValueBuilder: (plotRow) => plotRow.value,
+            
+            isWhitespace: (data) => !data,
+            
+            renderer: () => ({
+                draw: (target, priceConverter) => {
+                    const ctx = target.context;
+                    
+                    this.fvgs.forEach(fvg => {
+                        // 直接在canvas上繪製完美的矩形
+                        // ... 繪製代碼
+                    });
+                }
+            })
+        });
+    }
+}
+推薦實施順序
+
+立即修復：使用方案B（Canvas Overlay）
+
+不需要升級庫
+完美處理縮放
+性能良好
+
+
+中期計劃：測試方案A（Area Series）
+
+使用現有API
+較簡單實現
+
+
+長期計劃：升級到 v5 並使用 Custom Series
+
+最優雅的解決方案
+需要測試兼容性

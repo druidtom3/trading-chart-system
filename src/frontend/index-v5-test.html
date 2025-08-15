@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>交易圖表系統 - 紐約開盤前分析</title>
+    <title>交易圖表系統 v5 測試版 - 紐約開盤前分析</title>
     <link rel="stylesheet" href="style-v2.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
             <!-- 面板控制區 -->
             <div class="panel-control">
                 <button id="panel-toggle" class="panel-toggle" title="收合/展開">☰</button>
-                <span class="panel-title">技術指標</span>
+                <span class="panel-title">技術指標 [v5測試]</span>
             </div>
             
             <!-- 指標內容區 -->
@@ -28,7 +28,7 @@
                     <div class="indicator-list">
                         <label class="indicator-item">
                             <input type="checkbox" id="fvg-checkbox" checked>
-                            <span class="indicator-name">Fair Value Gap (FVG)</span>
+                            <span class="indicator-name">Fair Value Gap (FVG) v5</span>
                             <button class="settings-btn" data-indicator="fvg" title="設定參數">⚙</button>
                         </label>
                         
@@ -135,7 +135,7 @@
                 <!-- 頂部控制面板 -->
                 <div class="control-panel">
                     <div class="info-section">
-                        <h1>交易圖表系統</h1>
+                        <h1>交易圖表系統 <span style="color: #ff6b35; font-size: 0.8em;">[v5 測試版]</span></h1>
                         <div class="date-info">
                             <span id="current-date">載入中...</span>
                             <span id="market-info">載入中...</span>
@@ -148,7 +148,7 @@
                         <div class="action-buttons">
                             <button id="refresh-btn" class="btn btn-primary">隨機日期</button>
                             <button id="reset-zoom-btn" class="btn btn-secondary">重置縮放</button>
-                            <button id="fvg-toggle-btn" class="btn btn-toggle active">FVG 開</button>
+                            <button id="fvg-toggle-btn" class="btn btn-toggle active">FVG v5 開</button>
                             <button id="test-scaling-btn" class="btn btn-warning">測試縮放</button>
                             <button id="draw-line-btn" class="btn btn-tool">畫線</button>
                             <button id="clear-lines-btn" class="btn btn-danger">清除線</button>

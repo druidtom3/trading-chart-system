@@ -80,70 +80,13 @@ class ChartManager {
             priceScaleId: 'right',
         });
 
-        // 檢測 Lightweight Charts 版本並初始化對應的FVG渲染器
-        const chartVersion = this.detectLightweightChartsVersion();
-        console.log('檢測到 Lightweight Charts 版本:', chartVersion);
-        
-        if (chartVersion >= 5 && window.FVGRendererV5) {
-            console.log('使用 v5 FVG 渲染器');
-            this.fvgRenderer = new FVGRendererV5(this.chart, this.candlestickSeries);
-            this.chartVersion = 'v5';
-        } else if (window.FVGRenderer) {
-            console.log('使用 v4 兼容 FVG 渲染器');
-            this.fvgRenderer = new FVGRenderer(this.chart, this.candlestickSeries);
-            this.chartVersion = 'v4';
-        } else {
-            console.error('沒有可用的FVG渲染器');
-            this.chartVersion = 'unknown';
-        }
+        // 初始化FVG渲染器
+        this.fvgRenderer = new FVGRenderer(this.chart, this.candlestickSeries);
 
         // 綁定事件
         this.bindEvents();
 
         return this.chart;
-    }
-
-    /**
-     * 檢測 Lightweight Charts 版本
-     */
-    detectLightweightChartsVersion() {
-        try {
-            // 檢查v5專有的API
-            if (typeof this.chart.addCustomSeries === 'function') {
-                console.log('確認為 Lightweight Charts v5.x');
-                return 5;
-            }
-            
-            // 檢查v4的特徵
-            if (typeof LightweightCharts.createChart === 'function') {
-                console.log('檢測為 Lightweight Charts v4.x');
-                return 4;
-            }
-            
-            // 未知版本
-            console.warn('無法檢測 Lightweight Charts 版本');
-            return 0;
-            
-        } catch (error) {
-            console.error('版本檢測過程中發生錯誤:', error);
-            return 0;
-        }
-    }
-
-    /**
-     * 獲取當前使用的圖表版本
-     */
-    getChartVersion() {
-        return this.chartVersion || 'unknown';
-    }
-
-    /**
-     * 檢查是否使用v5渲染器
-     */
-    isUsingV5Renderer() {
-        return this.fvgRenderer && typeof this.fvgRenderer.isUsingV5Renderer === 'function' 
-            ? this.fvgRenderer.isUsingV5Renderer() 
-            : false;
     }
 
     /**

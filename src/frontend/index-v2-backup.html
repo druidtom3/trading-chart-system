@@ -149,7 +149,6 @@
                             <button id="refresh-btn" class="btn btn-primary">隨機日期</button>
                             <button id="reset-zoom-btn" class="btn btn-secondary">重置縮放</button>
                             <button id="fvg-toggle-btn" class="btn btn-toggle active">FVG 開</button>
-                            <button id="test-scaling-btn" class="btn btn-warning">測試縮放</button>
                             <button id="draw-line-btn" class="btn btn-tool">畫線</button>
                             <button id="clear-lines-btn" class="btn btn-danger">清除線</button>
                         </div>
@@ -198,9 +197,21 @@
                         <div class="spinner"></div>
                         <p>正在載入圖表資料...</p>
                     </div>
-                    <!-- 版本顯示 -->
-                    <div style="position: absolute; top: 10px; right: 10px; color: #666; font-size: 12px;" id="version-info">
-                        載入中...
+                    <!-- 後端載入進度顯示 (暫時隱藏) -->
+                    <div id="backend-loading" class="backend-loading" style="display: none !important;">
+                        <div class="backend-loading-content">
+                            <h3>系統啟動中...</h3>
+                            <div class="progress-container">
+                                <div id="progress-bar" class="progress-bar"></div>
+                            </div>
+                            <div class="progress-info">
+                                <span id="progress-text">檢查系統狀態...</span>
+                                <span id="progress-percent">0%</span>
+                            </div>
+                            <div id="progress-steps" class="progress-steps">
+                                <div class="step">正在載入資料...</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -211,7 +222,6 @@
                         <span id="fvg-count">FVG數量: --</span>
                         <span id="time-range">時間範圍: --</span>
                         <span id="dst-status">時區狀態: --</span>
-                        <span id="chart-version">圖表版本: --</span>
                     </div>
                     <div class="hover-info">
                         <span id="hover-data">將滑鼠移至圖表查看詳細資料</span>
@@ -221,18 +231,15 @@
         </div>
     </div>
     
-    <!-- 引入 Lightweight Charts v5.0.0 -->
+    <!-- 引入 Lightweight Charts - 使用多個備用 CDN -->
     <script>
-        // 檢查並載入 Lightweight Charts v5
+        // 檢查並載入 Lightweight Charts
         function loadLightweightCharts() {
             return new Promise((resolve, reject) => {
                 const cdnList = [
-                    // v5.0.0 優先使用
-                    'https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js',
-                    'https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js',
-                    // v4.1.3 作為回退
                     'https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js',
-                    'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js'
+                    'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js',
+                    'https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.3/lightweight-charts.standalone.production.min.js'
                 ];
                 
                 let currentIndex = 0;
@@ -251,15 +258,7 @@
                         // 檢查 API 是否可用
                         if (typeof LightweightCharts !== 'undefined' && 
                             typeof LightweightCharts.createChart === 'function') {
-                            
-                            // 檢測版本
-                            const hasCustomSeries = typeof LightweightCharts.createChart().addCustomSeries === 'function';
-                            const version = hasCustomSeries ? 'v5.x' : 'v4.x';
-                            
-                            console.log('檢測到 Lightweight Charts 版本:', version);
-                            document.getElementById('version-info').textContent = `LWC ${version}`;
-                            
-                            resolve(version);
+                            resolve();
                         } else {
                             console.warn('Lightweight Charts API 不完整');
                             currentIndex++;
@@ -313,9 +312,8 @@
 
         // 載入完成後初始化
         loadLightweightCharts()
-            .then((version) => {
-                console.log('開始載入主程式... 版本:', version);
-                
+            .then(() => {
+                console.log('開始載入主程式...');
                 // 先載入聚合器
                 const aggregatorScript = document.createElement('script');
                 aggregatorScript.src = 'candleAggregator.js';
@@ -324,41 +322,17 @@
                     console.log('CandleAggregator 載入成功');
                     console.log('開始載入其他模組...');
                     
-                    // 根據版本載入不同的模組
-                    let modules = ['config.js'];
-                    
-                    if (version.startsWith('v5')) {
-                        console.log('載入 v5 專用模組');
-                        modules.push('fvg-renderer-v5.js');
-                    } else {
-                        console.log('載入 v4 兼容模組');
-                        modules.push('fvg-custom-series.js', 'fvg-renderer.js');
-                    }
-                    
-                    modules.push('chart-manager.js', 'data-manager.js', 'playback-manager.js', 'event-manager.js');
-                    
-                    // v5測試版加載測試腳本
-                    if (version.startsWith('v5')) {
-                        modules.push('test-fvg-v5.js');
-                    }
-                    
+                    // 載入配置和管理器模組
+                    const modules = ['config.js', 'fvg-custom-series.js', 'fvg-renderer.js', 'chart-manager.js', 'data-manager.js', 'playback-manager.js', 'event-manager.js'];
                     console.log('要載入的模組:', modules);
                     
                     loadModules(modules, () => {
                         console.log('所有模組載入完成，開始載入主程式 script-v2.js');
-                        // 最後載入主程式
+                        // 最後載入主程式 - 使用新的 script-v2.js
                         const script = document.createElement('script');
                         script.src = 'script-v2.js';
                         script.onload = () => {
                             console.log('script-v2.js 載入成功');
-                            
-                            // 顯示版本信息
-                            setTimeout(() => {
-                                if (window.app && window.app.chart) {
-                                    const chartVersion = version;
-                                    document.getElementById('chart-version').textContent = `圖表: ${chartVersion}`;
-                                }
-                            }, 1000);
                         };
                         script.onerror = (error) => {
                             console.error('script-v2.js 載入失敗:', error);

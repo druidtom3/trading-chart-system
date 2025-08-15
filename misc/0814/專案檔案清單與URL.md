@@ -68,6 +68,7 @@
 | 檔案 | GitHub URL |
 |------|-----------|
 | src/frontend/fvg-renderer.js | https://raw.githubusercontent.com/druidtom3/trading-chart-system/main/src/frontend/fvg-renderer.js |
+| src/frontend/fvg-custom-series.js | https://raw.githubusercontent.com/druidtom3/trading-chart-system/main/src/frontend/fvg-custom-series.js |
 | src/frontend/fvg_series.js | https://raw.githubusercontent.com/druidtom3/trading-chart-system/main/src/frontend/fvg_series.js |
 
 ### 其他模組
@@ -155,6 +156,9 @@
 | 檔案 | GitHub URL |
 |------|-----------|
 | misc/0814/FVG修正.txt | https://raw.githubusercontent.com/druidtom3/trading-chart-system/main/misc/0814/FVG修正.txt |
+| misc/0814/FVG修正2.txt | https://raw.githubusercontent.com/druidtom3/trading-chart-system/main/misc/0814/FVG修正2.txt |
+| misc/0814/FVG修正3.txt | https://raw.githubusercontent.com/druidtom3/trading-chart-system/main/misc/0814/FVG修正3.txt |
+| misc/0814/FVG修正4.txt | https://raw.githubusercontent.com/druidtom3/trading-chart-system/main/misc/0814/FVG修正4.txt |
 | misc/0814/FVG規則v2.txt | https://raw.githubusercontent.com/druidtom3/trading-chart-system/main/misc/0814/FVG規則v2.txt |
 | misc/0814/FVG規則V3.txt | https://raw.githubusercontent.com/druidtom3/trading-chart-system/main/misc/0814/FVG規則V3.txt |
 | misc/0814/重構.txt | https://raw.githubusercontent.com/druidtom3/trading-chart-system/main/misc/0814/重構.txt |
@@ -182,11 +186,27 @@
 
 ## 最新版本功能
 
-- **矩形FVG渲染**: 性能優化的矩形顯示方式
+- **改進的FVG自定義渲染器**: 解決縮放問題的完整矩形渲染
+- **DPI縮放支援**: 適應高解析度螢幕的精確座標轉換
 - **V3 FVG檢測**: 簡化精準的檢測邏輯
 - **左側技術指標面板**: 改善的UI布局
-- **最小高度過濾**: 過濾太小的FVG
-- **正確的起始點**: FVG從左K線開始顯示
+- **最小高度過濾**: 過濾太小的FVG (≥1.0點)
+- **回退機制**: 確保不同瀏覽器的相容性
+- **性能優化**: 跳過螢幕外FVG渲染
+
+## 最新更新 (2025-08-14)
+
+### 新增檔案
+- `src/frontend/fvg-custom-series.js` - 改進的自定義FVG渲染器
+- `misc/0814/FVG修正2.txt` - 矩形渲染分析
+- `misc/0814/FVG修正3.txt` - 自定義渲染器完整實現
+- `misc/0814/FVG修正4.txt` - 最佳解決方案：改進的方案3
+
+### 主要改進
+- 修復FVG縮放時位置不準確問題
+- 實現真正的矩形填充 (非三線組合)
+- 加入DPI縮放與座標轉換
+- 修復後端API缺少欄位問題
 
 生成時間: 2025-08-14
-Git提交: bd895f7
+最新Git提交: 93076d4

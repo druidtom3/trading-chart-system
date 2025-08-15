@@ -17,7 +17,8 @@
       "Bash(rm:*)",
       "Bash(grep:*)",
       "Bash(curl:*)",
-      "Bash(cmd /c:*)"
+      "Bash(cmd /c:*)",
+      "Bash(copy srcfrontendindex-v2.html srcfrontendindex-v2-before-v5-upgrade.html)"
     ],
     "deny": [],
     "ask": []
