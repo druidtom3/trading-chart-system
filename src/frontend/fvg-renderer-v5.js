@@ -186,7 +186,7 @@ class FVGCustomSeries {
         }
         
         // 轉換數據格式
-        const timeStep = ConfigUtils.getTimeframeSeconds(timeframe);
+        const timeStep = this.getTimeframeSeconds(timeframe);
         const processedData = data.map(fvg => {
             const startTime = fvg.left_time || fvg.time;
             let endTime = fvg.clear_time;
@@ -392,6 +392,19 @@ class FVGRendererV5 {
     // 檢查是否使用v5渲染
     isUsingV5Renderer() {
         return this.isV5Available && this.customSeries !== null;
+    }
+    
+    // 獲取時間框架的秒數
+    getTimeframeSeconds(timeframe) {
+        const timeSteps = {
+            'M1': 60,
+            'M5': 300,
+            'M15': 900,
+            'H1': 3600,
+            'H4': 14400,
+            'D1': 86400
+        };
+        return timeSteps[timeframe] || 900;
     }
 }
 

@@ -28,6 +28,20 @@ loading_status = {
     'error': None
 }
 
+# API健康檢查端點
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """健康檢查端點"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'trading-chart-backend',
+        'port': FLASK_PORT,
+        'data_loaded': not loading_status['is_loading'],
+        'loading_progress': loading_status['progress'],
+        'current_step': loading_status['current_step'],
+        'timestamp': str(__import__('datetime').datetime.now())
+    }), 200
+
 @app.route('/')
 def index():
     """主頁面"""

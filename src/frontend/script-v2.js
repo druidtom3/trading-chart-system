@@ -256,10 +256,31 @@ async function initializeManagers() {
         console.log('事件管理器創建成功');
         
         console.log('所有管理器初始化完成');
+        
+        // 創建全局app對象供進度監控使用
+        window.app = {
+            chart: chart,
+            chartManager: chartManager,
+            dataManager: dataManager,
+            playbackManager: playbackManager,
+            eventManager: eventManager,
+            currentTimeframe: currentTimeframe
+        };
+        console.log('window.app 對象已創建:', window.app);
+        
     } catch (error) {
         console.error('管理器初始化失敗:', error);
         console.error('錯誤詳情:', error.message);
         console.error('錯誤堆疊:', error.stack);
+        
+        // 即使失敗也要創建app對象，但標記為錯誤狀態
+        window.app = {
+            error: true,
+            errorMessage: error.message,
+            chart: null,
+            chartManager: null
+        };
+        
         alert('系統初始化失敗: ' + error.message);
         throw error; // 重新拋出錯誤以便上層捕獲
     }
