@@ -172,10 +172,16 @@ class CandleAggregator {
                 if (timeframe === 'H1' || timeframe === 'H4') {
                     const expectedNext = this.getNextExpectedTime(currentCandle.time, timeframe);
                     if (alignedTime > expectedNext) {
-                        console.warn(`⚠️ ${timeframe} 跳空檢測: 預期 ${new Date(expectedNext * 1000).toLocaleString()}, 實際 ${new Date(alignedTime * 1000).toLocaleString()}`);
+                        const gapHours = (alignedTime - expectedNext) / 3600;
+                        console.warn(`⚠️ ${timeframe} 跳空檢測: 預期 ${new Date(expectedNext * 1000).toLocaleString()}, 實際 ${new Date(alignedTime * 1000).toLocaleString()}, 跳空 ${gapHours} 小時`);
                         
-                        // 填補缺失的K線
-                        this.fillMissingCandles(timeframe, expectedNext, alignedTime, currentCandle);
+                        // 檢查是否為週末跳空（不填補）
+                        if (!this.isWeekendGap(currentCandle.time, alignedTime)) {
+                            // 填補缺失的K線
+                            this.fillMissingCandles(timeframe, expectedNext, alignedTime, currentCandle);
+                        } else {
+                            console.log(`📅 ${timeframe} 週末跳空，不填補: ${new Date(currentCandle.time * 1000).toLocaleString()} -> ${new Date(alignedTime * 1000).toLocaleString()}`);
+                        }
                     }
                 }
             }
@@ -299,6 +305,37 @@ class CandleAggregator {
     }
     
     /**
+     * 判斷是否為週末跳空
+     * @param {number} lastTime - 最後一根K線時間
+     * @param {number} nextTime - 下一根K線時間
+     * @returns {boolean}
+     */
+    isWeekendGap(lastTime, nextTime) {
+        const lastDate = new Date(lastTime * 1000);
+        const nextDate = new Date(nextTime * 1000);
+        
+        // 獲取星期幾 (0=Sunday, 1=Monday, ..., 6=Saturday)
+        const lastDay = lastDate.getDay();
+        const nextDay = nextDate.getDay();
+        
+        // 檢查是否跨越週末
+        // 情況1: 週五到週一 (5 -> 1)
+        // 情況2: 週五到週日 (5 -> 0)  
+        // 情況3: 週六到週一 (6 -> 1)
+        if ((lastDay === 5 && (nextDay === 1 || nextDay === 0)) ||
+            (lastDay === 6 && nextDay === 1)) {
+            
+            const gapHours = (nextTime - lastTime) / 3600;
+            // 週末跳空通常是40-65小時 (週五22:00到週一17:00)
+            if (gapHours >= 30 && gapHours <= 80) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
      * 填補缺失的K線
      * @param {string} timeframe - 時間刻度
      * @param {number} startTime - 開始時間
@@ -308,23 +345,50 @@ class CandleAggregator {
     fillMissingCandles(timeframe, startTime, endTime, lastCandle) {
         let currentTime = startTime;
         const increment = timeframe === 'H1' ? 3600 : 14400; // H1: 1小時, H4: 4小時
+        let filledCount = 0;
         
         while (currentTime < endTime) {
-            // 建立一根平盤K線
-            const missingCandle = {
-                time: currentTime,
-                open: lastCandle.close,
-                high: lastCandle.close,
-                low: lastCandle.close,
-                close: lastCandle.close,
-                volume: 0
-            };
-            
-            this.completedCandles[timeframe].push(missingCandle);
-            console.log(`🔧 ${timeframe} 填補缺失K線: ${new Date(currentTime * 1000).toLocaleString()}`);
+            // 檢查這個時間是否在交易時間內
+            if (this.isTradingHour(currentTime)) {
+                // 建立一根平盤K線
+                const missingCandle = {
+                    time: currentTime,
+                    open: lastCandle.close,
+                    high: lastCandle.close,
+                    low: lastCandle.close,
+                    close: lastCandle.close,
+                    volume: 0
+                };
+                
+                this.completedCandles[timeframe].push(missingCandle);
+                console.log(`🔧 ${timeframe} 填補缺失K線: ${new Date(currentTime * 1000).toLocaleString()}`);
+                filledCount++;
+            }
             
             currentTime += increment;
         }
+        
+        if (filledCount > 0) {
+            console.log(`✅ ${timeframe} 總共填補了 ${filledCount} 根缺失K線`);
+        }
+    }
+
+    /**
+     * 判斷指定時間是否在交易時間內
+     * @param {number} timestamp - Unix時間戳
+     * @returns {boolean}
+     */
+    isTradingHour(timestamp) {
+        const date = new Date(timestamp * 1000);
+        const day = date.getDay(); // 0=Sunday, 6=Saturday
+        
+        // 外匯市場週一到週五交易
+        // 簡化判斷：避免週末時間
+        if (day === 0 || day === 6) {
+            return false; // 週末不交易
+        }
+        
+        return true; // 工作日都認為是交易時間
     }
     
     /**

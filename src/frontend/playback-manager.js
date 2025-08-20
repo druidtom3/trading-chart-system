@@ -300,7 +300,7 @@ class PlaybackManager {
     updatePlaybackFVGs() {
         // 播放時FVG檢測已由後端處理，前端只需要重新繪製
         const fvgRenderer = this.chartManager.getFVGRenderer();
-        if (fvgRenderer.isVisible) {
+        if (fvgRenderer && fvgRenderer.getVisible()) {
             // 這裡可以根據需要實現播放時的FVG更新邏輯
             // 目前簡化為依賴後端檢測結果
         }
@@ -353,8 +353,10 @@ class PlaybackManager {
         let historicalData = null;
         
         if (this.dataManager.hasCachedData(currentData.date, timeframe)) {
-            // 這裡需要添加獲取快取數據的方法
-            // historicalData = this.dataManager.getCachedData(currentData.date, timeframe);
+            historicalData = this.dataManager.getCachedData(currentData.date, timeframe);
+            console.log(`📊 從快取獲取 ${timeframe} 歷史數據:`, historicalData ? historicalData.data.length + ' 根K線' : '無數據');
+        } else {
+            console.log(`⚠️ 未找到 ${timeframe} 的快取數據`);
         }
 
         // 取得播放產生的K線資料
@@ -365,8 +367,63 @@ class PlaybackManager {
             playbackCandles = this.candleAggregator.getAllCandles(timeframe);
         }
 
+        console.log(`🎬 播放產生的 ${timeframe} K線數量:`, playbackCandles.length);
+
+        // 合併歷史數據和播放數據
+        let combinedData = [];
+        
+        if (historicalData && historicalData.data) {
+            // 添加歷史數據
+            combinedData = [...historicalData.data];
+            console.log(`📈 歷史數據 K線數量:`, combinedData.length);
+        }
+        
+        if (playbackCandles.length > 0) {
+            // 找到歷史數據的最後時間點
+            const lastHistoricalTime = combinedData.length > 0 ? 
+                combinedData[combinedData.length - 1].time : 0;
+            
+            // 只添加時間晚於歷史數據的播放K線
+            const newPlaybackCandles = playbackCandles.filter(candle => 
+                candle.time > lastHistoricalTime
+            );
+            
+            // 檢查歷史數據和播放數據之間是否有跳空
+            if (combinedData.length > 0 && newPlaybackCandles.length > 0) {
+                const gapSeconds = newPlaybackCandles[0].time - lastHistoricalTime;
+                const expectedGap = this.getExpectedTimeGap(timeframe);
+                
+                if (gapSeconds > expectedGap * 2) {
+                    console.warn(`⚠️ ${timeframe} 歷史和播放數據間檢測到跳空: ${gapSeconds/3600}小時`);
+                    console.warn(`   最後歷史: ${new Date(lastHistoricalTime * 1000).toLocaleString()}`);
+                    console.warn(`   第一播放: ${new Date(newPlaybackCandles[0].time * 1000).toLocaleString()}`);
+                }
+            }
+            
+            combinedData = combinedData.concat(newPlaybackCandles);
+            console.log(`🔄 合併後總 K線數量:`, combinedData.length, 
+                       `(歷史: ${historicalData ? historicalData.data.length : 0}, 新增播放: ${newPlaybackCandles.length})`);
+        }
+
         // 更新圖表
-        this.chartManager.updateData(playbackCandles);
+        this.chartManager.updateData(combinedData);
+    }
+
+    /**
+     * 獲取指定時間框架的預期時間間隔（秒）
+     * @param {string} timeframe - 時間框架
+     * @returns {number} 預期間隔秒數
+     */
+    getExpectedTimeGap(timeframe) {
+        switch (timeframe) {
+            case 'M1': return 60;      // 1分鐘
+            case 'M5': return 300;     // 5分鐘
+            case 'M15': return 900;    // 15分鐘
+            case 'H1': return 3600;    // 1小時
+            case 'H4': return 14400;   // 4小時
+            case 'D1': return 86400;   // 1天
+            default: return 3600;      // 默認1小時
+        }
     }
 
     /**

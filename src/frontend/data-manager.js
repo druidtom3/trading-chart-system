@@ -274,6 +274,14 @@ class DataManager {
         const cacheKey = `${date}-${timeframe}`;
         return this.dataCache.has(cacheKey);
     }
+
+    /**
+     * 獲取快取數據
+     */
+    getCachedData(date, timeframe) {
+        const cacheKey = `${date}-${timeframe}`;
+        return this.dataCache.get(cacheKey);
+    }
 }
 
 // 暴露到全局範圍
