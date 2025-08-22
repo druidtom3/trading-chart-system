@@ -26,15 +26,7 @@ class EventManager {
      * 綁定按鈕事件
      */
     bindButtonEvents() {
-        // 隨機資料按鈕
-        const refreshBtn = document.getElementById('refresh-btn');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', () => {
-                this.playbackManager.stopPlayback();
-                this.dataManager.clearCache();
-                this.loadRandomData();
-            });
-        }
+        // 隨機資料按鈕事件已在script-v2.js中處理，避免重複綁定
 
         // 重置縮放按鈕
         const resetBtn = document.getElementById('reset-zoom-btn');
@@ -167,17 +159,7 @@ class EventManager {
         });
     }
 
-    /**
-     * 載入隨機數據
-     */
-    async loadRandomData() {
-        try {
-            const data = await this.dataManager.loadRandomData(this.currentTimeframe);
-            this.updateChart(data);
-        } catch (error) {
-            alert(error.message);
-        }
-    }
+    // loadRandomData方法已移除 - 隨機數據載入由script-v2.js統一處理
 
     /**
      * 載入特定數據

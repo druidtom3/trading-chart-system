@@ -56,19 +56,51 @@
             font-size: 10px;
             color: #aaa;
         }
+        
+        /* 側邊欄載入模式按鈕樣式 */
+        .mode-buttons-inline {
+            display: flex;
+            gap: 4px;
+            margin-top: 5px;
+        }
+        
+        .mode-btn {
+            flex: 1;
+            padding: 4px 6px;
+            font-size: 11px;
+            border: 1px solid #ddd;
+            background: #f8f9fa;
+            color: #666;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .mode-btn:hover {
+            background: #e9ecef;
+            border-color: #ccc;
+        }
+        
+        .mode-btn.active {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            border-color: #2980b9;
+            box-shadow: 0 1px 4px rgba(52, 152, 219, 0.3);
+        }
+        
+        .mode-status {
+            margin-top: 4px;
+            text-align: center;
+        }
+        
+        .mode-status small {
+            color: #666;
+            font-size: 10px;
+        }
     </style>
 </head>
 <body>
-    <!-- 智能載入模式切換器 -->
-    <div class="mode-switcher">
-        <div>載入模式:</div>
-        <button onclick="switchLoadingMode('production')" id="mode-production">生產</button>
-        <button onclick="switchLoadingMode('debug')" id="mode-debug">調試</button>
-        <button onclick="switchLoadingMode('development')" id="mode-development">開發</button>
-        <div class="mode-info">
-            <span>當前: </span><span id="current-mode">auto</span>
-        </div>
-    </div>
+    <!-- 載入模式控制已移至左側面板 -->
 
     <!-- 載入進度覆蓋層 -->
     <div id="loading-overlay" class="loading-overlay">
@@ -252,6 +284,27 @@
                         </label>
                     </div>
                 </div>
+                
+                <!-- 系統設置 -->
+                <div class="indicator-category expanded" data-category="system">
+                    <div class="indicator-category-header">
+                        <span>系統設置</span>
+                        <span class="category-arrow">▼</span>
+                    </div>
+                    <div class="indicator-list">
+                        <div class="sub-indicator-item">
+                            <div class="sub-indicator-name">載入模式</div>
+                            <div class="mode-buttons-inline">
+                                <button onclick="switchLoadingMode('production')" id="mode-production-sidebar" class="mode-btn">生產</button>
+                                <button onclick="switchLoadingMode('debug')" id="mode-debug-sidebar" class="mode-btn">調試</button>
+                                <button onclick="switchLoadingMode('development')" id="mode-development-sidebar" class="mode-btn">開發</button>
+                            </div>
+                            <div class="mode-status">
+                                <small>當前: <span id="current-mode-sidebar">auto</span></small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         
@@ -354,6 +407,7 @@
                         <span id="fvg-count">FVG數量: --</span>
                         <span id="time-range">時間範圍: --</span>
                         <span id="dst-status">時區狀態: --</span>
+                        <span id="continuity-info" style="display: none;">連續性: 檢查中...</span>
                         <span id="chart-version">圖表版本: --</span>
                     </div>
                     <div class="hover-info">
@@ -949,19 +1003,15 @@
                 alert('圖表庫載入失敗，請檢查網路連線或嘗試重新整理頁面。');
             });
             
-        // CandleAggregator腳本初始化部分
-        const aggregatorScript = document.createElement('script');
-        aggregatorScript.src = 'candleAggregator.js';
-        aggregatorScript.onload = () => {
-            console.log('CandleAggregator 載入完成');
-        };
-        
-        aggregatorScript.onerror = () => {
-            console.error('CandleAggregator 載入失敗');
-            alert('系統載入失敗，請重新整理頁面。');
-        };
-        
-        document.head.appendChild(aggregatorScript);
+        // CandleAggregator已在模組載入階段載入，此處僅檢查（使用 window 全域檢查）
+        if (typeof window.CandleAggregator !== 'undefined') {
+            console.log('CandleAggregator 已載入完成');
+        } else if (typeof CandleAggregator !== 'undefined') {
+            console.log('CandleAggregator 已載入完成（本地範圍）');
+        } else {
+            console.warn('CandleAggregator 未在全域範圍載入，但系統可能正常運行');
+            // 移除彈窗警告，改為控制台警告，避免中斷用戶體驗
+        }
             
         // ========== FVG 多線條渲染器控制項目初始化 ==========
         
@@ -1278,6 +1328,23 @@
             window.location = url.toString();
         };
         
+        // 檢測載入模式的函數
+        function detectLoadingMode() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlMode = urlParams.get('mode');
+            
+            if (urlMode === 'debug') return 'debug';
+            if (urlMode === 'dev' || urlMode === 'development') return 'development';
+            if (urlMode === 'production') return 'production';
+            
+            const savedMode = localStorage.getItem('smartLoadingMode');
+            if (savedMode && ['production', 'debug', 'development'].includes(savedMode)) {
+                return savedMode;
+            }
+            
+            return 'production';
+        }
+
         // 更新模式切換器UI
         function updateModeUI() {
             const currentMode = detectLoadingMode();
@@ -1288,14 +1355,27 @@
                 currentModeElement.textContent = currentMode;
             }
             
-            // 更新按鈕狀態
-            document.querySelectorAll('.mode-switcher button').forEach(btn => {
+            // 更新按鈕狀態（兼容頂部和側邊欄）
+            document.querySelectorAll('.mode-switcher button, .mode-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
             
+            // 更新頂部按鈕（如果存在）
             const activeButton = document.getElementById(`mode-${currentMode}`);
             if (activeButton) {
                 activeButton.classList.add('active');
+            }
+            
+            // 更新側邊欄按鈕
+            const sidebarActiveButton = document.getElementById(`mode-${currentMode}-sidebar`);
+            if (sidebarActiveButton) {
+                sidebarActiveButton.classList.add('active');
+            }
+            
+            // 更新側邊欄狀態顯示
+            const sidebarModeDisplay = document.getElementById('current-mode-sidebar');
+            if (sidebarModeDisplay) {
+                sidebarModeDisplay.textContent = currentMode;
             }
             
             console.log(`🎯 當前載入模式: ${currentMode}`);

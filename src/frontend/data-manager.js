@@ -234,6 +234,26 @@ class DataManager {
             const count = data.fvgs ? data.fvgs.length : 0;
             elements.fvgCount.textContent = `FVG數量: ${count}`;
         }
+        
+        // 顯示K線連續性資訊
+        if (data.continuity_info) {
+            const continuityElement = document.getElementById('continuity-info');
+            if (continuityElement) {
+                const { continuity_percentage, gap_count, check_status } = data.continuity_info;
+                
+                if (check_status === 'good') {
+                    continuityElement.textContent = `連續性: ${continuity_percentage.toFixed(1)}% ✓`;
+                    continuityElement.style.color = '#4CAF50';
+                } else if (check_status === 'warning') {
+                    continuityElement.textContent = `連續性: ${continuity_percentage.toFixed(1)}% ⚠️ (${gap_count}個間隙)`;
+                    continuityElement.style.color = '#FF9800';
+                } else {
+                    continuityElement.textContent = `連續性: 檢查失敗`;
+                    continuityElement.style.color = '#F44336';
+                }
+                continuityElement.style.display = 'inline-block';
+            }
+        }
 
         // 處理假日資訊
         if (elements.holidayInfo && data.holiday_info) {

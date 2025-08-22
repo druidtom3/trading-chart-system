@@ -8,9 +8,10 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
-from utils.config import (DATA_DIR, CSV_FILES, DEFAULT_CANDLE_COUNT, LOG_DIR, RANDOM_DATE_CONFIG,
+from utils.config import (DATA_DIR, CSV_FILES, LOG_DIR, RANDOM_DATE_CONFIG,
                           FVG_CLEARING_WINDOW, CACHE_MAX_SIZE, 
-                          MAX_RECORDS_LIMIT, MEMORY_OPTIMIZATION_THRESHOLD)
+                          MAX_RECORDS_LIMIT, MEMORY_OPTIMIZATION_THRESHOLD, 
+                          FULL_DATA_LOADING, ANALYSIS_CANDLE_COUNT)
 from utils.time_utils import datetime_to_timestamp, validate_timestamp
 try:
     from utils.loading_config import LOADING_CONFIG, OPTIMIZED_DTYPES, MEMORY_CONFIG, FVG_PERFORMANCE_CONFIG
@@ -90,6 +91,138 @@ class DataProcessor:
         if hasattr(self, 'loading_callback') and self.loading_callback:
             self.loading_callback(**kwargs)
     
+    def scan_date_ranges_only(self):
+        """智能掃描：僅讀取時間欄位以獲得日期範圍，不載入完整資料"""
+        import datetime
+        start_time = datetime.datetime.now()
+        
+        print("=" * 60)
+        print("交易圖表系統 - 智能掃描模式啟動")
+        print("=" * 60)
+        print("階段1: 快速掃描所有時間刻度的日期範圍...")
+        
+        date_ranges = {}
+        total_files = len(CSV_FILES)
+        current_file = 0
+        
+        for timeframe, filename in CSV_FILES.items():
+            current_file += 1
+            filepath = os.path.join(DATA_DIR, filename)
+            
+            print(f"\n[{current_file}/{total_files}] 掃描: {filename}")
+            print(f"   路徑: {filepath}")
+            
+            try:
+                # 只讀取前幾行來判斷格式
+                sample_df = pd.read_csv(filepath, nrows=5)
+                
+                if 'Time' in sample_df.columns:
+                    # M1, M5, M15, H1, H4 格式 - 使用超快速採樣策略
+                    print(f"   使用採樣策略掃描大文件...")
+                    
+                    # 讀取頭部和尾部來獲得日期範圍
+                    head_df = pd.read_csv(filepath, usecols=['Date', 'Time'], nrows=1000)
+                    
+                    # 使用文件大小快速估算行數（避免讀取整個文件）
+                    import os
+                    file_size = os.path.getsize(filepath)
+                    estimated_lines = max(1000, file_size // 100)  # 粗略估算：每行約100字節
+                    
+                    # 讀取尾部
+                    tail_df = pd.read_csv(filepath, usecols=['Date', 'Time'], 
+                                        skiprows=range(1, max(1, estimated_lines - 1000)), 
+                                        header=0)
+                    
+                    # 合併頭尾資料
+                    df_dates = pd.concat([head_df, tail_df], ignore_index=True)
+                    df_dates['DateTime'] = pd.to_datetime(df_dates['Date'] + ' ' + df_dates['Time'], 
+                                                        format='%m/%d/%Y %H:%M')
+                    
+                    print(f"   採樣方式：頭部1000行 + 尾部1000行，估算文件約{estimated_lines:,}行")
+                else:
+                    # D1 格式 - 文件較小，直接讀取
+                    df_dates = pd.read_csv(filepath, usecols=['Date'])
+                    df_dates['DateTime'] = pd.to_datetime(df_dates['Date'], format='%m/%d/%Y')
+                    estimated_lines = len(df_dates)
+                
+                df_dates['Date_Only'] = df_dates['DateTime'].dt.date
+                
+                # 獲取日期範圍（使用採樣數據估算）
+                start_date = df_dates['Date_Only'].min()
+                end_date = df_dates['Date_Only'].max()
+                
+                # 對於採樣的數據，估算完整的日期集合
+                if 'Time' in sample_df.columns:
+                    # 估算：從開始到結束日期之間的所有交易日
+                    from datetime import timedelta
+                    estimated_dates = set()
+                    current_date = start_date
+                    while current_date <= end_date:
+                        # 假設週一到週五都是交易日（簡化估算）
+                        if current_date.weekday() < 5:
+                            estimated_dates.add(current_date)
+                        current_date += timedelta(days=1)
+                    unique_dates = estimated_dates
+                    print(f"   使用估算策略：{len(unique_dates):,} 個估算交易日")
+                else:
+                    # D1 數據直接使用真實日期
+                    unique_dates = set(df_dates['Date_Only'].unique())
+                
+                total_records = estimated_lines
+                
+                date_ranges[timeframe] = {
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'unique_dates': unique_dates,
+                    'total_records': total_records
+                }
+                
+                print(f"   時間範圍: {start_date} ~ {end_date}")
+                print(f"   交易日數: {len(unique_dates):,} 天")
+                print(f"   總記錄數: {total_records:,} 筆")
+                print(f"   {timeframe} 掃描完成！")
+                
+            except Exception as e:
+                print(f"   掃描失敗: {str(e)}")
+                continue
+        
+        # 計算所有時間刻度的交集
+        print("\n階段2: 計算日期交集...")
+        if date_ranges:
+            all_dates = list(date_ranges.values())
+            intersection_dates = all_dates[0]['unique_dates']
+            
+            for i, timeframe in enumerate(CSV_FILES.keys()):
+                if timeframe in date_ranges:
+                    dates = date_ranges[timeframe]['unique_dates']
+                    old_count = len(intersection_dates)
+                    intersection_dates &= dates
+                    new_count = len(intersection_dates)
+                    print(f"   {timeframe}: {old_count:,} -> {new_count:,} 天 (交集)")
+            
+            # 儲存結果
+            self.available_dates = intersection_dates
+            self.date_ranges = date_ranges
+            
+            # 顯示最終結果
+            min_date = min(intersection_dates)
+            max_date = max(intersection_dates)
+            elapsed = datetime.datetime.now() - start_time
+            
+            print("\n" + "=" * 60)
+            print("智能掃描完成！")
+            print(f"掃描統計:")
+            print(f"   時間刻度: {len(date_ranges)} 種")
+            print(f"   可用交集日期: {len(intersection_dates):,} 天")
+            print(f"   日期範圍: {min_date} ~ {max_date}")
+            print(f"   掃描時間: {elapsed.total_seconds():.2f} 秒")
+            print("=" * 60)
+            
+            return True
+        else:
+            print("掃描失敗：沒有找到任何可用的日期範圍")
+            return False
+
     def load_all_data(self):
         """載入所有時間刻度的資料到記憶體"""
         import datetime
@@ -150,10 +283,10 @@ class DataProcessor:
                 df = pd.read_csv(filepath)
                 original_count = len(df)
                 
-                # 使用配置中的K線限制
-                from utils.config import DEFAULT_CANDLE_COUNT
+                # 新邏輯：載入大量資料用於交集計算，但不是全部（避免記憶體問題）
+                from utils.config import FULL_DATA_LOADING
                 
-                # 根據時間框架獲取對應的K線數量
+                # 根據時間框架識別
                 timeframe_key = None
                 for tf in ['M1', 'M5', 'M15', 'H1', 'H4', 'D1']:
                     if tf in filepath:
@@ -161,14 +294,18 @@ class DataProcessor:
                         break
                 
                 if timeframe_key:
-                    candle_limit = DEFAULT_CANDLE_COUNT.get(timeframe_key, 400)
-                    if len(df) > candle_limit:
-                        df = df.tail(candle_limit)
-                        print(f"   [{timeframe_key}標準] 從 {original_count:,} 筆記錄中保留最近 {len(df):,} 筆（配置: {candle_limit}根）")
+                    data_limit = FULL_DATA_LOADING.get(timeframe_key, 10000)
+                    if data_limit == -1:
+                        # 載入全部
+                        print(f"   [{timeframe_key}完整] 載入全部 {len(df):,} 筆記錄")
+                    elif len(df) > data_limit:
+                        # 載入最後N筆記錄
+                        df = df.tail(data_limit)
+                        print(f"   [{timeframe_key}大量] 從 {original_count:,} 筆中載入最後 {len(df):,} 筆記錄")
                     else:
-                        print(f"   [{timeframe_key}] 數據量適中，載入全部 {len(df):,} 筆記錄")
+                        print(f"   [{timeframe_key}全量] 載入全部 {len(df):,} 筆記錄")
                 else:
-                    print(f"   數據量適中，載入全部 {len(df):,} 筆記錄")
+                    print(f"   載入全部 {len(df):,} 筆記錄")
                 
                 # 動態檢查必要欄位（基於時間框架）
                 base_columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
@@ -285,7 +422,7 @@ class DataProcessor:
         print(f"   日期範圍: {min_date} ~ {max_date}")
         
         # 執行K線連續性檢查
-        print(f"\n正在執行K線連續性檢查...")
+        print(f"\n[INFO] 執行K線連續性檢查...")
         self.perform_continuity_check()
         
         # 新增：預載入常用數據以提升響應速度
@@ -296,21 +433,146 @@ class DataProcessor:
         print("系統準備就緒，等待用戶連線...")
         print()
     
+    def check_data_range_consistency(self) -> Dict:
+        """檢查各時間刻度資料範圍的一致性
+        
+        Returns:
+            Dict: 包含詳細的一致性檢查報告
+        """
+        print("=== 檢查各時間刻度資料範圍一致性 ===")
+        
+        timeframe_info = {}
+        all_timeframes = ['D1', 'H4', 'H1', 'M15', 'M5', 'M1']
+        loaded_timeframes = []
+        
+        # 1. 檢查各時間刻度載入狀態和日期範圍
+        for tf in all_timeframes:
+            if tf in self.data_cache and not self.data_cache[tf].empty:
+                df = self.data_cache[tf]
+                dates = set(df['Date_Only'].unique())
+                dates_list = sorted(list(dates))
+                
+                timeframe_info[tf] = {
+                    'loaded': True,
+                    'dates': dates,
+                    'date_count': len(dates),
+                    'min_date': dates_list[0],
+                    'max_date': dates_list[-1],
+                    'data_rows': len(df)
+                }
+                loaded_timeframes.append(tf)
+                print(f"{tf}: {dates_list[0]} ~ {dates_list[-1]} ({len(dates)}天, {len(df)}筆資料)")
+            else:
+                timeframe_info[tf] = {
+                    'loaded': False,
+                    'dates': set(),
+                    'date_count': 0,
+                    'min_date': None,
+                    'max_date': None,
+                    'data_rows': 0
+                }
+                print(f"{tf}: 未載入")
+        
+        if not loaded_timeframes:
+            print("[ERROR] 錯誤：沒有任何時間刻度載入成功")
+            return {'error': 'no_data_loaded', 'timeframe_info': timeframe_info}
+        
+        # 2. 計算所有載入時間刻度的日期交集
+        print("\n--- 計算日期交集 ---")
+        intersection_dates = timeframe_info[loaded_timeframes[0]]['dates'].copy()
+        
+        for tf in loaded_timeframes[1:]:
+            old_count = len(intersection_dates)
+            intersection_dates &= timeframe_info[tf]['dates']
+            new_count = len(intersection_dates)
+            print(f"與 {tf} 交集後：{old_count} -> {new_count} 天")
+        
+        intersection_list = sorted(list(intersection_dates))
+        
+        # 3. 應用配置過濾
+        filtered_dates = intersection_dates.copy()
+        if RANDOM_DATE_CONFIG['start_date']:
+            from datetime import datetime as dt
+            fixed_start_date = dt.strptime(RANDOM_DATE_CONFIG['start_date'], '%Y-%m-%d').date()
+            filtered_dates = {d for d in filtered_dates if d >= fixed_start_date}
+            print(f"應用固定起始日期 {fixed_start_date}：{len(intersection_dates)} -> {len(filtered_dates)} 天")
+        
+        # 4. 檢查各時間刻度缺失的日期
+        print("\n--- 各時間刻度缺失日期分析 ---")
+        for tf in loaded_timeframes:
+            missing_dates = intersection_dates - timeframe_info[tf]['dates']
+            if missing_dates:
+                missing_list = sorted(list(missing_dates))[:5]  # 只顯示前5個
+                print(f"{tf} 缺失日期：{len(missing_dates)}天 (例如: {missing_list})")
+            else:
+                print(f"{tf} [PASS] 完整包含所有交集日期")
+        
+        # 5. 生成報告
+        final_filtered_list = sorted(list(filtered_dates))
+        
+        report = {
+            'timeframe_info': timeframe_info,
+            'loaded_timeframes': loaded_timeframes,
+            'intersection_dates': intersection_list,
+            'filtered_dates': final_filtered_list,
+            'intersection_count': len(intersection_list),
+            'filtered_count': len(final_filtered_list),
+            'consistency_issues': []
+        }
+        
+        # 6. 檢查一致性問題
+        if len(final_filtered_list) == 0:
+            report['consistency_issues'].append('交集為空：沒有任何日期在所有時間刻度中都存在')
+        elif len(final_filtered_list) < 10:
+            report['consistency_issues'].append(f'交集過小：只有 {len(final_filtered_list)} 天可用')
+        
+        for tf in loaded_timeframes:
+            missing_count = len(intersection_dates - timeframe_info[tf]['dates'])
+            if missing_count > 0:
+                report['consistency_issues'].append(f'{tf} 缺失 {missing_count} 天的交集日期')
+        
+        print(f"\n=== 檢查結果 ===")
+        print(f"載入的時間刻度：{len(loaded_timeframes)}/{len(all_timeframes)}")
+        print(f"原始交集：{len(intersection_list)} 天")
+        print(f"配置過濾後：{len(final_filtered_list)} 天")
+        if final_filtered_list:
+            print(f"可用範圍：{final_filtered_list[0]} ~ {final_filtered_list[-1]}")
+        
+        if report['consistency_issues']:
+            print("[WARN] 發現一致性問題：")
+            for issue in report['consistency_issues']:
+                print(f"   - {issue}")
+        else:
+            print("[PASS] 資料範圍一致性良好")
+        
+        return report
+
     def get_random_date(self) -> date:
-        """隨機選擇一個可用的交易日期"""
+        """從所有時間刻度的日期交集中隨機選擇一個交易日期
+        
+        新邏輯：
+        1. 載入完整歷史資料
+        2. 計算所有時間刻度的日期交集
+        3. 顯示交集範圍給使用者
+        4. 從交集中隨機選擇一個日期
+        5. 之後再從該日期往前取400根K線
+        """
+        import random
+        
+        print("\n[INFO] Random date selection starting...")
+        
+        # 直接使用已載入的可用日期 (跳過詳細一致性檢查)
         if not self.available_dates:
-            raise ValueError("沒有可用的交易日期")
+            raise ValueError("No available dates loaded")
         
-        dates_list = sorted(list(self.available_dates))
-        selected_date = random.choice(dates_list)
+        filtered_dates = list(self.available_dates)
         
-        # 提供詳細的日誌信息
-        min_date = dates_list[0]
-        max_date = dates_list[-1]
-        total_days = len(dates_list)
-        print(f"隨機選擇日期: {selected_date}")
-        print(f"可用範圍: {min_date} ~ {max_date} (共 {total_days} 天)")
-        print(f"固定起始日期: {RANDOM_DATE_CONFIG['start_date']} (配置)")
+        # 隨機選擇日期
+        selected_date = random.choice(filtered_dates)
+        
+        print(f"\n[INFO] Available date range: {len(filtered_dates)} days")
+        print(f"[INFO] Selected date: {selected_date}")
+        print(f"[INFO] Will extract 400 candles from this date")
         
         return selected_date
     
@@ -355,9 +617,61 @@ class DataProcessor:
             logging.error(f"FVG detection failed for {timeframe}: {str(e)}")
             return []
     
+    def load_specific_date_data(self, target_date: date, timeframe: str) -> Optional[pd.DataFrame]:
+        """
+        按需載入特定日期前的資料 (智能載入)
+        
+        Args:
+            target_date: 目標日期
+            timeframe: 時間刻度
+            
+        Returns:
+            DataFrame: 包含目標日期前400根K線的資料
+        """
+        try:
+            filename = CSV_FILES.get(timeframe)
+            if not filename:
+                print(f"錯誤：無效的時間刻度 {timeframe}")
+                return None
+            
+            filepath = os.path.join(DATA_DIR, filename)
+            print(f"按需載入 {timeframe} 資料於 {target_date}...")
+            
+            # 讀取檔案
+            df = pd.read_csv(filepath)
+            
+            # 處理時間欄位
+            if 'Time' in df.columns:
+                df['DateTime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'], 
+                                              format='%m/%d/%Y %H:%M')
+            else:
+                df['DateTime'] = pd.to_datetime(df['Date'], format='%m/%d/%Y')
+            
+            df['Date_Only'] = df['DateTime'].dt.date
+            df = df.sort_values('DateTime').reset_index(drop=True)
+            
+            # 找到目標日期的資料
+            target_date_data = df[df['Date_Only'] == target_date]
+            if target_date_data.empty:
+                print(f"警告：{timeframe} 中找不到 {target_date} 的資料")
+                return None
+            
+            # 從目標日期往前取400根K線
+            target_end_index = target_date_data.index[-1]
+            candle_count = ANALYSIS_CANDLE_COUNT
+            start_index = max(0, target_end_index - candle_count + 1)
+            result_data = df.iloc[start_index:target_end_index + 1].copy()
+            
+            print(f"   載入完成：{len(result_data)} 根K線 ({start_index}-{target_end_index})")
+            return result_data
+            
+        except Exception as e:
+            print(f"按需載入失敗: {str(e)}")
+            return None
+
     def get_pre_market_data(self, target_date: date, timeframe: str = 'H4') -> Optional[Dict]:
         """
-        取得指定日期開盤前的資料 (簡化版本，移除緩存機制)
+        取得指定日期開盤前的資料 (智能載入版本)
         
         Args:
             target_date: 目標日期
@@ -366,43 +680,79 @@ class DataProcessor:
         Returns:
             Dict: 包含圖表資料和相關資訊
         """
-        # 檢查日期是否在可用範圍內
-        if target_date not in self.available_dates:
-            available_range = f"{min(self.available_dates)} ~ {max(self.available_dates)}" if self.available_dates else "空"
-            logging.error(f"日期 {target_date} 不在可用範圍內 ({available_range})")
-            return None
-        
+        # 智能載入：如果資料未在快取中，則按需載入
         if timeframe not in self.data_cache:
-            logging.error(f"時間刻度 {timeframe} 的資料未載入")
-            return None
+            print(f"時間刻度 {timeframe} 未載入，執行按需載入...")
+            df = self.load_specific_date_data(target_date, timeframe)
+            if df is None:
+                logging.error(f"按需載入 {timeframe} 失敗")
+                return None
+        else:
+            df = self.data_cache[timeframe]
         
-        df = self.data_cache[timeframe]
+        # 檢查該時間框架是否包含目標日期的數據
+        timeframe_dates = set(df['Date_Only'].unique())
+        if target_date not in timeframe_dates:
+            # 使用交集策略後，這種情況不應該發生
+            # 如果發生了，說明隨機日期選擇邏輯有問題
+            available_range = f"{min(timeframe_dates)} ~ {max(timeframe_dates)}" if timeframe_dates else "空"
+            error_msg = (f"資料一致性錯誤：日期 {target_date} 不存在於時間框架 {timeframe} 中 "
+                        f"(可用範圍: {available_range})。這表示隨機日期選擇邏輯有問題，"
+                        f"應該只從所有時間框架的交集中選擇日期。")
+            logging.error(error_msg)
+            return None
         
         try:
-            # 計算開盤前5分鐘的時間（台北時間）
-            pre_market_time = self.time_converter.get_pre_market_time(target_date, timeframe)
+            print(f"開始處理 {timeframe} 時間刻度的資料 (目標日期: {target_date})")
             
-            # 取得開盤前5分鐘的所有資料（不限於當日）
-            pre_market_data = df[df['DateTime'] <= pre_market_time.replace(tzinfo=None)].copy()
+            # 新邏輯：從目標日期往前取400根K線
+            # 1. 找到目標日期在資料中的位置
+            target_date_data = df[df['Date_Only'] == target_date]
             
-            if pre_market_data.empty:
-                # Fallback: 使用最早可用資料（適用於M1等高頻數據）
-                print(f"No pre-market data for {target_date} in {timeframe}, using earliest available data")
-                from utils.config import DEFAULT_CANDLE_COUNT
-                detection_range_candles = DEFAULT_CANDLE_COUNT.get(timeframe, 400)
-                pre_market_data = df.head(detection_range_candles).copy()
+            if target_date_data.empty:
+                # 這種情況不應該發生，因為已經通過交集檢查
+                logging.error(f"交集檢查通過但找不到目標日期 {target_date} 在 {timeframe} 中的資料")
+                return None
             
-            # FVG檢測範圍：使用配置的K線數量限制
-            from utils.config import DEFAULT_CANDLE_COUNT
-            detection_range_candles = DEFAULT_CANDLE_COUNT.get(timeframe, 400)
+            # 2. 找到目標日期的最後一筆資料的索引
+            target_end_index = target_date_data.index[-1]
             
-            # 如果資料不足，就取所有可用的，但不超過配置限制
-            actual_count = min(detection_range_candles, len(pre_market_data))
-            result_data = pre_market_data.tail(actual_count)
+            # 3. 從該索引往前取N根K線用於分析
+            from utils.config import ANALYSIS_CANDLE_COUNT
+            candle_count = ANALYSIS_CANDLE_COUNT
+            start_index = max(0, target_end_index - candle_count + 1)
             
-            # 數據量驗證：確保不超過配置限制
-            if len(result_data) > detection_range_candles:
-                result_data = result_data.tail(detection_range_candles)
+            result_data = df.iloc[start_index:target_end_index + 1].copy()
+            
+            print(f"   從索引 {start_index} 到 {target_end_index}，共取得 {len(result_data)} 根K線")
+            print(f"   時間範圍：{result_data['DateTime'].min()} ~ {result_data['DateTime'].max()}")
+            print(f"   日期範圍：{result_data['Date_Only'].min()} ~ {result_data['Date_Only'].max()}")
+            
+            # 執行400根K線的連續性檢查
+            try:
+                continuity_result = self.continuity_checker.check_continuity(result_data, timeframe)
+                continuity_percentage = continuity_result.get('summary', {}).get('continuity_percentage', 0)
+                gap_count = continuity_result.get('summary', {}).get('gap_count', 0)
+                
+                if continuity_percentage < 95:  # 連續性低於95%時警告
+                    print(f"   ⚠️  K線連續性警告: {continuity_percentage:.1f}% (發現 {gap_count} 個間隙)")
+                else:
+                    print(f"   ✓ K線連續性良好: {continuity_percentage:.1f}%")
+                    
+                # 將連續性資訊添加到結果中
+                continuity_info = {
+                    'continuity_percentage': continuity_percentage,
+                    'gap_count': gap_count,
+                    'check_status': 'good' if continuity_percentage >= 95 else 'warning'
+                }
+            except Exception as e:
+                print(f"   ⚠️  連續性檢查失敗: {str(e)}")
+                continuity_info = {
+                    'continuity_percentage': -1,
+                    'gap_count': -1,
+                    'check_status': 'error',
+                    'error': str(e)
+                }
             
             # 檢測 FVG
             fvgs = self.detect_fvgs(result_data, timeframe)
@@ -429,6 +779,9 @@ class DataProcessor:
             ny_open_taipei = self.time_converter.get_ny_market_open_taipei_time(target_date)
             is_dst = self.time_converter.is_dst_in_ny(target_date)
             
+            # 計算盤前時間（開盤前30分鐘）
+            pre_market_time = ny_open_taipei - timedelta(minutes=30)
+            
             # 計算收盤時間（台北時間）- 紐約16:00
             ny_close_time = datetime.combine(target_date, datetime.min.time().replace(hour=16, minute=0))
             ny_close = self.time_converter.ny_tz.localize(ny_close_time)
@@ -450,6 +803,8 @@ class DataProcessor:
                 'candle_count': len(chart_data),
                 # 新增假日資訊
                 'holiday_info': holiday_status,
+                # 新增K線連續性資訊
+                'continuity_info': continuity_info,
                 # 新增時區資訊
                 'timezone_info': {
                     'is_dst': is_dst,
@@ -530,9 +885,8 @@ class DataProcessor:
             print(f"開盤後記錄: {len(market_data)} 筆")
             print(f"資料時間範圍: {market_data['DateTime'].min()} ~ {market_data['DateTime'].max()}")
             
-            # 限制數據量以提升性能：使用配置的K線數量限制
-            from utils.config import DEFAULT_CANDLE_COUNT
-            max_candles = DEFAULT_CANDLE_COUNT.get(timeframe, 400)
+            # 限制數據量以提升性能：使用分析K線數量限制
+            max_candles = ANALYSIS_CANDLE_COUNT
             
             if len(market_data) > max_candles:
                 market_data = market_data.tail(max_candles)
@@ -640,18 +994,18 @@ class DataProcessor:
                         
                         status_icon = "[OK]" if missing_data == 0 else "[WARN]" if missing_data < 100 else "[ERROR]"
                         
-                        print(f"        └─ {status_icon} {continuity_pct:6.1f}% 連續性 "
-                              f"(數據缺失: {missing_data:,} 根K線)")
+                        print(f"        └─ {status_icon} {continuity_pct:6.1f}% Continuity "
+                              f"(Missing data: {missing_data:,} candles)")
                         
                         # 顯示正常停盤和真實缺失的分佈
                         if trading_gaps > 0:
-                            print(f"        └─ 正常停盤: {trading_gaps} 個間隙")
+                            print(f"        └─ Normal market closure: {trading_gaps} gaps")
                         if data_gaps > 0:
-                            print(f"        └─ 數據缺失: {data_gaps} 個間隙")
+                            print(f"        └─ Data missing: {data_gaps} gaps")
                         
                         # 如果有嚴重問題，顯示詳細資訊
                         if missing_data > 1000:
-                            print(f"        └─ 建議檢查數據質量")
+                            print(f"        └─ Recommend checking data quality")
                 
                 else:
                     # 原版檢查器
@@ -667,11 +1021,11 @@ class DataProcessor:
                         missing_data = summary.get('total_missing_data', summary.get('total_missing_candles', 0))
                         
                         status_icon = "[OK]" if missing_data == 0 else "[WARN]" if missing_data < 100 else "[ERROR]"
-                        print(f"   {timeframe:>3}: {status_icon} {continuity_pct:6.1f}% 連續性")
+                        print(f"   {timeframe:>3}: {status_icon} {continuity_pct:6.1f}% Continuity")
                 
             except Exception as e:
-                print(f"   {timeframe:>3}: [ERROR] 檢查失敗 - {str(e)}")
-                logging.error(f"連續性檢查失敗 [{timeframe}]: {str(e)}")
+                print(f"   {timeframe:>3}: [ERROR] Check failed - {str(e)}")
+                logging.error(f"Continuity check failed [{timeframe}]: {str(e)}")
                 
                 # 如果檢查失敗，但系統可以繼續運行
                 df = self.data_cache[timeframe]

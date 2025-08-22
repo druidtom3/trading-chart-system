@@ -1,9 +1,20 @@
+# -*- coding: utf-8 -*-
 # 檔名：app.py
+
+import os
+import sys
+import io
+import logging
+
+# 修法B: 環境變數強制UTF-8 (AI建議3.txt)
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
+# 設定 UTF-8 輸出
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
-import os
-import sys
 
 # 加入專案路徑到 Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -14,6 +25,26 @@ sys.path.insert(0, src_dir)
 from utils.config import FLASK_HOST, FLASK_PORT, FLASK_DEBUG, PROJECT_ROOT
 from backend.data_processor import DataProcessor
 
+# 修法A: 統一Logging為UTF-8編碼 (AI建議3.txt)
+LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
+os.makedirs(LOG_DIR, exist_ok=True)
+
+logger = logging.getLogger()
+logger.handlers.clear()
+
+# 檔案Handler強制UTF-8
+fh = logging.FileHandler(os.path.join(LOG_DIR, 'error.log'), encoding='utf-8')
+fmt = logging.Formatter('[%(levelname)s] %(asctime)s %(name)s: %(message)s')
+fh.setFormatter(fmt)
+
+# Console Handler
+ch = logging.StreamHandler()
+ch.setFormatter(fmt)
+
+logger.addHandler(fh)
+logger.addHandler(ch)
+logger.setLevel(logging.INFO)
+
 app = Flask(__name__)
 CORS(app)
 
@@ -22,7 +53,7 @@ data_processor = DataProcessor()
 loading_status = {
     'is_loading': True,
     'progress': 0,
-    'current_step': '準備載入資料...',
+    'current_step': 'Preparing to load data...',
     'total_steps': 6,
     'completed_steps': 0,
     'current_file': '',
@@ -36,7 +67,7 @@ loading_status = {
 # API健康檢查端點
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """健康檢查端點"""
+    """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
         'service': 'trading-chart-backend',
@@ -100,16 +131,16 @@ def get_random_data():
         if timeframe not in available_timeframes:
             timeframe = 'H4'  # 回到預設值
         
-        print(f"API: 隨機資料請求，時間刻度: {timeframe}")
+        print(f"API: Random data request, timeframe: {timeframe}")
         
-        # 隨機選擇日期
+        # 從統一日期池隨機選擇日期（不依賴特定時間框架）
         random_date = data_processor.get_random_date()
         
         # 使用指定的時間刻度
         data = data_processor.get_pre_market_data(random_date, timeframe)
         
         if data is None:
-            return jsonify({'error': '無法取得資料'}), 500
+            return jsonify({'error': 'Unable to fetch data'}), 500
         
         # 確保所有數據都是JSON可序列化的
         def convert_to_serializable(obj):
@@ -311,6 +342,18 @@ def get_date_continuity(date, timeframe):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/data-consistency-check')
+def get_data_consistency_check():
+    """檢查各時間刻度資料範圍的一致性"""
+    try:
+        consistency_report = data_processor.check_data_range_consistency()
+        return jsonify(consistency_report), 200
+    except Exception as e:
+        import traceback
+        print(f"資料一致性檢查錯誤: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/clear-cache')
 def clear_cache():
     """清除API響應緩存"""
@@ -333,8 +376,9 @@ if __name__ == '__main__':
     # 設置載入狀態回調
     data_processor.set_loading_callback(update_loading_status)
     
-    # 載入資料
+    # 暫時回退到傳統模式以測試系統功能
     try:
+        print("使用傳統載入模式...")
         data_processor.load_all_data()
         # 載入完成
         update_loading_status(
