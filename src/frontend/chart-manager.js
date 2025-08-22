@@ -1,4 +1,4 @@
-// 檔名：chart-manager.js - 圖表基本操作管理器
+// 檔名：chart-manager.js - 圖表基本操作管理器 (v5完全兼容版本)
 
 class ChartManager {
     constructor() {
@@ -7,6 +7,7 @@ class ChartManager {
         this.fvgRenderer = null;
         this.manualLines = [];
         this.isDrawingLine = false;
+        this.chartVersion = null;
     }
 
     /**
@@ -95,194 +96,14 @@ class ChartManager {
             },
         });
 
-        // 創建K線系列 - 簡化並強化錯誤處理
-        console.log('開始創建K線系列...');
-        console.log('chart對象存在:', !!this.chart);
-        console.log('LightweightCharts可用:', typeof LightweightCharts !== 'undefined');
+        // 智能版本檢測與系列創建
+        this.chartVersion = this.detectLightweightChartsVersion();
+        console.log('檢測到 Lightweight Charts 版本:', this.chartVersion);
         
-        // 檢查基本前提條件
-        if (!this.chart) {
-            throw new Error('圖表對象未正確創建');
-        }
+        this.candlestickSeries = this.createCandlestickSeries();
         
-        if (typeof LightweightCharts === 'undefined') {
-            throw new Error('LightweightCharts 未載入');
-        }
-        
-        // 檢查版本信息
-        if (typeof LightweightCharts.version === 'string') {
-            console.log('LightweightCharts版本:', LightweightCharts.version);
-        }
-        
-        try {
-            // 優先嘗試標準的addCandlestickSeries
-            console.log('嘗試創建K線系列...');
-            
-            // 準備通用的系列配置
-            const baseSeriesConfig = {
-                priceScaleId: 'right',
-                lastValueVisible: false,
-                priceLineVisible: false,
-            };
-            
-            // v5 API 檢查和診斷
-            console.log('檢查 v5 API...');
-            const allMethods = Object.getOwnPropertyNames(this.chart);
-            console.log('chart 物件的所有方法:', allMethods);
-            
-            // 檢查 prototype 方法
-            const prototypeMethods = Object.getOwnPropertyNames(Object.getPrototypeOf(this.chart));
-            console.log('chart prototype 方法:', prototypeMethods);
-            
-            let seriesCreated = false;
-            
-            // 嘗試所有可能的系列創建方法
-            const possibleMethods = [
-                // v5 可能的方法
-                { name: 'addCandlestickSeries', type: 'function', params: [] },
-                { name: 'addLineSeries', type: 'function', params: [] },
-                { name: 'addSeries', type: 'function', params: ['Candlestick'] },
-                { name: 'createSeries', type: 'function', params: ['Candlestick'] },
-                { name: 'addBarSeries', type: 'function', params: [] },
-                { name: 'addAreaSeries', type: 'function', params: [] }
-            ];
-            
-            for (const method of possibleMethods) {
-                if (typeof this.chart[method.name] === 'function') {
-                    console.log(`嘗試使用: ${method.name}`);
-                    try {
-                        const seriesConfig = {
-                            ...baseSeriesConfig,
-                            upColor: '#26a69a',
-                            downColor: '#ef5350',
-                            borderDownColor: '#ef5350',
-                            borderUpColor: '#26a69a',
-                            wickDownColor: '#ef5350',
-                            wickUpColor: '#26a69a',
-                            color: '#26a69a', // 為線條系列準備
-                            lineWidth: 2
-                        };
-                        
-                        if (method.name === 'addSeries') {
-                            // v5 addSeries 需要使用 LightweightCharts.SeriesType
-                            console.log('嘗試 v5 addSeries 與 LightweightCharts.SeriesType');
-                            
-                            // 檢查可用的系列類型
-                            console.log('可用的 LightweightCharts 屬性:', Object.keys(LightweightCharts));
-                            
-                            // 嘗試不同的系列類型格式
-                            const seriesTypes = [
-                                LightweightCharts.CandlestickSeries,
-                                'Candlestick',
-                                'candlestick',
-                                LightweightCharts.SeriesType?.Candlestick,
-                                LightweightCharts.LineSeries,
-                                'Line',
-                                'line'
-                            ];
-                            
-                            let foundType = null;
-                            for (const seriesType of seriesTypes) {
-                                if (seriesType !== undefined) {
-                                    console.log(`嘗試系列類型:`, seriesType);
-                                    try {
-                                        this.candlestickSeries = this.chart.addSeries(seriesType, seriesConfig);
-                                        foundType = seriesType;
-                                        console.log(`成功使用系列類型:`, seriesType);
-                                        break;
-                                    } catch (typeError) {
-                                        console.warn(`系列類型 ${seriesType} 失敗:`, typeError.message);
-                                    }
-                                }
-                            }
-                            
-                            if (!foundType) {
-                                throw new Error('所有系列類型都失敗');
-                            }
-                        } else if (method.params.length > 0) {
-                            // 需要參數的方法
-                            this.candlestickSeries = this.chart[method.name](...method.params, seriesConfig);
-                        } else {
-                            // 不需要參數的方法
-                            this.candlestickSeries = this.chart[method.name](seriesConfig);
-                        }
-                        
-                        console.log(`${method.name} 創建成功!`);
-                        console.log('創建的系列對象:', this.candlestickSeries);
-                        seriesCreated = true;
-                        break;
-                    } catch (error) {
-                        console.error(`${method.name} 失敗:`, error);
-                    }
-                }
-            }
-            
-            // 如果還是失敗，最後診斷
-            if (!seriesCreated) {
-                // 檢查是否是 API 版本問題
-                console.error('=== 完整診斷信息 ===');
-                console.log('LightweightCharts 版本:', LightweightCharts.version || '未知');
-                console.log('LightweightCharts 物件:', LightweightCharts);
-                console.log('chart 實例:', this.chart);
-                console.log('chart 構造函數:', this.chart.constructor.name);
-                
-                // 嘗試訪問內部 API
-                if (this.chart._private) {
-                    console.log('chart._private:', Object.keys(this.chart._private));
-                }
-                
-                // 檢查是否有 addSeries 的任何變體
-                const seriesRelatedMethods = [...allMethods, ...prototypeMethods].filter(name =>
-                    name.toLowerCase().includes('series') || 
-                    name.toLowerCase().includes('add') ||
-                    name.toLowerCase().includes('create')
-                );
-                console.log('所有與系列相關的方法:', seriesRelatedMethods);
-                
-                throw new Error(`v5 API 不兼容: 無法找到任何系列創建方法。可用方法: ${seriesRelatedMethods.join(', ')}`);
-            }
-            
-            // 驗證系列是否成功創建
-            if (!this.candlestickSeries) {
-                throw new Error('系列對象為null或undefined');
-            }
-            
-            console.log('圖表系列創建並驗證成功');
-            
-        } catch (error) {
-            console.error('系列創建失敗:', error.message);
-            console.error('錯誤詳情:', error);
-            
-            // 提供更詳細的錯誤信息
-            const errorDetails = {
-                chartExists: !!this.chart,
-                lightweightChartsExists: typeof LightweightCharts !== 'undefined',
-                addCandlestickSeriesExists: typeof this.chart?.addCandlestickSeries === 'function',
-                addLineSeriesExists: typeof this.chart?.addLineSeries === 'function',
-                chartType: typeof this.chart,
-                availableMethods: this.chart ? Object.getOwnPropertyNames(this.chart).filter(n => n.includes('add')) : []
-            };
-            
-            console.error('錯誤診斷信息:', errorDetails);
-            throw new Error(`無法創建圖表系列: ${error.message} | 診斷: ${JSON.stringify(errorDetails)}`);
-        }
-
-        // 檢測 Lightweight Charts 版本並初始化對應的FVG渲染器
-        const chartVersion = this.detectLightweightChartsVersion();
-        console.log('檢測到 Lightweight Charts 版本:', chartVersion);
-        
-        if (chartVersion >= 5 && window.FVGRendererV5) {
-            console.log('使用 v5 FVG 渲染器');
-            this.fvgRenderer = new FVGRendererV5(this.chart, this.candlestickSeries);
-            this.chartVersion = 'v5';
-        } else if (window.FVGRenderer) {
-            console.log('使用 v4 兼容 FVG 渲染器');
-            this.fvgRenderer = new FVGRenderer(this.chart, this.candlestickSeries);
-            this.chartVersion = 'v4';
-        } else {
-            console.error('沒有可用的FVG渲染器');
-            this.chartVersion = 'unknown';
-        }
+        // 初始化對應的FVG渲染器
+        this.initializeFVGRenderer();
 
         // 綁定事件
         this.bindEvents();
@@ -295,26 +116,283 @@ class ChartManager {
      */
     detectLightweightChartsVersion() {
         try {
-            // 檢查v5專有的API
-            if (typeof this.chart.addCustomSeries === 'function') {
-                console.log('確認為 Lightweight Charts v5.x');
-                return 5;
+            console.log('開始版本檢測...');
+            console.log('LightweightCharts 物件:', typeof LightweightCharts !== 'undefined' ? 'Available' : 'Unavailable');
+            
+            if (typeof LightweightCharts === 'undefined') {
+                console.error('LightweightCharts 未載入！');
+                return 'unknown';
             }
             
-            // 檢查v4的特徵
-            if (typeof LightweightCharts.createChart === 'function') {
-                console.log('檢測為 Lightweight Charts v4.x');
-                return 4;
+            // 檢查版本字符串（v5中可能是函數）
+            let versionString = null;
+            if (typeof LightweightCharts.version === 'string') {
+                versionString = LightweightCharts.version;
+            } else if (typeof LightweightCharts.version === 'function') {
+                try {
+                    versionString = LightweightCharts.version();
+                } catch (e) {
+                    console.warn('無法調用version()函數:', e);
+                }
             }
             
-            // 未知版本
-            console.warn('無法檢測 Lightweight Charts 版本');
-            return 0;
+            if (versionString) {
+                console.log('檢測到版本字符串:', versionString);
+                
+                if (versionString.startsWith('5.')) {
+                    console.log('根據版本字符串確認為 v5');
+                    return 'v5';
+                } else if (versionString.startsWith('4.')) {
+                    console.log('根據版本字符串確認為 v4');
+                    return 'v4';
+                }
+            }
+            
+            // 檢查 v5 特有的 API
+            console.log('檢查 v5 API 特徵...');
+            console.log('LightweightCharts.SeriesType:', typeof LightweightCharts.SeriesType);
+            
+            if (typeof LightweightCharts.SeriesType === 'object' && LightweightCharts.SeriesType) {
+                console.log('SeriesType 物件:', Object.keys(LightweightCharts.SeriesType));
+                if (LightweightCharts.SeriesType.Candlestick) {
+                    console.log('確認為 Lightweight Charts v5.x (SeriesType.Candlestick 存在)');
+                    return 'v5';
+                }
+            }
+            
+            // 檢查是否有 addSeries 方法（v5特徵）
+            if (this.chart && typeof this.chart.addSeries === 'function') {
+                console.log('確認為 Lightweight Charts v5.x (addSeries 方法存在)');
+                return 'v5';
+            }
+            
+            // 檢查 v4 的特徵
+            console.log('檢查 v4 API 特徵...');
+            if (this.chart && typeof this.chart.addCandlestickSeries === 'function') {
+                console.log('檢測為 Lightweight Charts v4.x (addCandlestickSeries 存在)');
+                return 'v4';
+            }
+            
+            // 嘗試創建測試圖表來檢測版本
+            try {
+                const testContainer = document.createElement('div');
+                testContainer.style.width = '100px';
+                testContainer.style.height = '100px';
+                testContainer.style.position = 'absolute';
+                testContainer.style.left = '-1000px';
+                document.body.appendChild(testContainer);
+                
+                const testChart = LightweightCharts.createChart(testContainer, {
+                    width: 100,
+                    height: 100
+                });
+                
+                let detectedVersion = 'v4';
+                
+                // 檢查 v5 API
+                if (typeof testChart.addSeries === 'function') {
+                    console.log('測試圖表確認為 v5 (有 addSeries)');
+                    detectedVersion = 'v5';
+                } else if (typeof testChart.addCandlestickSeries === 'function') {
+                    console.log('測試圖表確認為 v4 (有 addCandlestickSeries)');
+                    detectedVersion = 'v4';
+                }
+                
+                // 清理測試圖表
+                testChart.remove();
+                document.body.removeChild(testContainer);
+                
+                return detectedVersion;
+                
+            } catch (testError) {
+                console.warn('測試圖表創建失敗:', testError);
+            }
+            
+            console.warn('無法檢測 Lightweight Charts 版本，預設為 v4');
+            return 'v4';
             
         } catch (error) {
             console.error('版本檢測過程中發生錯誤:', error);
-            return 0;
+            return 'v4';
         }
+    }
+
+    /**
+     * 創建K線系列（智能版本適配）
+     */
+    createCandlestickSeries() {
+        console.log('開始創建K線系列...');
+        console.log('當前檢測版本:', this.chartVersion);
+        console.log('圖表物件存在:', !!this.chart);
+        
+        const seriesConfig = {
+            priceScaleId: 'right',
+            lastValueVisible: false,
+            priceLineVisible: false,
+            upColor: '#26a69a',
+            downColor: '#ef5350',
+            borderDownColor: '#ef5350',
+            borderUpColor: '#26a69a',
+            wickDownColor: '#ef5350',
+            wickUpColor: '#26a69a',
+        };
+
+        // v5 API修復 - 使用正確的參數格式
+        const methods = [
+            {
+                name: 'v5_addSeries_CandlestickSeries',
+                test: () => typeof this.chart.addSeries === 'function' && typeof LightweightCharts.CandlestickSeries !== 'undefined',
+                execute: () => {
+                    // v5正確的API格式: addSeries(CandlestickSeries, options)
+                    console.log('使用 v5 API: addSeries(CandlestickSeries, options)');
+                    return this.chart.addSeries(LightweightCharts.CandlestickSeries, seriesConfig);
+                }
+            },
+            {
+                name: 'v5_addSeries_string_type',
+                test: () => typeof this.chart.addSeries === 'function',
+                execute: () => {
+                    // v5備選格式: addSeries('Candlestick', options)
+                    console.log('使用 v5 API: addSeries("Candlestick", options)');
+                    return this.chart.addSeries('Candlestick', seriesConfig);
+                }
+            },
+            {
+                name: 'v4_addCandlestickSeries',
+                test: () => typeof this.chart.addCandlestickSeries === 'function',
+                execute: () => {
+                    // v4 API格式: addCandlestickSeries(options)
+                    console.log('使用 v4 API: addCandlestickSeries(options)');
+                    return this.chart.addCandlestickSeries(seriesConfig);
+                }
+            },
+            {
+                name: 'fallback_basic',
+                test: () => true, // 最後回退方案
+                execute: () => {
+                    // 最基本的創建方式
+                    if (typeof this.chart.addCandlestickSeries === 'function') {
+                        console.log('使用基本回退: addCandlestickSeries()');
+                        return this.chart.addCandlestickSeries({
+                            upColor: '#26a69a',
+                            downColor: '#ef5350'
+                        });
+                    }
+                    throw new Error('No candlestick series creation method available');
+                }
+            }
+        ];
+
+        let lastError = null;
+        
+        for (const method of methods) {
+            try {
+                console.log(`嘗試方法: ${method.name}`);
+                console.log(`條件檢查:`, method.test());
+                
+                if (method.test()) {
+                    console.log(`執行方法: ${method.name}`);
+                    const series = method.execute();
+                    console.log(`成功! 使用方法: ${method.name}`);
+                    console.log('創建的系列:', series);
+                    return series;
+                }
+            } catch (error) {
+                console.warn(`方法 ${method.name} 失敗:`, error.message);
+                lastError = error;
+            }
+        }
+        
+        // 所有方法都失敗
+        console.error('所有創建方法都失敗');
+        console.error('最後錯誤:', lastError);
+        
+        // 詳細診斷
+        console.log('=== 詳細診斷 ===');
+        console.log('LightweightCharts:', typeof LightweightCharts);
+        console.log('LightweightCharts.version:', LightweightCharts?.version);
+        console.log('LightweightCharts.SeriesType:', typeof LightweightCharts?.SeriesType);
+        if (LightweightCharts?.SeriesType) {
+            console.log('SeriesType keys:', Object.keys(LightweightCharts.SeriesType));
+        }
+        console.log('chart.addSeries:', typeof this.chart?.addSeries);
+        console.log('chart.addCandlestickSeries:', typeof this.chart?.addCandlestickSeries);
+        console.log('chart methods:', this.chart ? Object.getOwnPropertyNames(this.chart).filter(name => name.includes('add')) : []);
+        
+        throw new Error(`無法創建K線系列。最後錯誤: ${lastError?.message || '未知錯誤'}`);
+    }
+
+    /**
+     * 初始化FVG渲染器 - 統一使用優化版本
+     */
+    initializeFVGRenderer() {
+        try {
+            // 使用Logger系統進行日誌輸出
+            const log = window.log || { 
+                loading: (msg) => console.log(`📦 ${msg}`),
+                success: (msg) => console.log(`✅ ${msg}`),
+                error: (msg) => console.error(`❌ ${msg}`)
+            };
+            
+            log.loading('初始化 FVG 渲染器');
+            
+            // 檢查必要組件
+            if (!this.chart) {
+                throw new Error('圖表實例未創建');
+            }
+            if (!this.candlestickSeries) {
+                throw new Error('K線系列未創建');
+            }
+            
+            // 統一使用優化版本，移除其他選擇邏輯
+            if (window.FVGRendererOptimized) {
+                this.fvgRenderer = new FVGRendererOptimized(this.chart, this.candlestickSeries);
+                log.success('FVG優化渲染器初始化成功');
+            } else {
+                throw new Error('FVG渲染器未載入');
+            }
+            
+            // 基本功能檢查
+            if (typeof this.fvgRenderer.render !== 'function') {
+                throw new Error('FVG渲染器缺少render方法');
+            }
+            if (typeof this.fvgRenderer.setVisible !== 'function') {
+                throw new Error('FVG渲染器缺少setVisible方法');
+            }
+            
+            log.success('FVG渲染器功能檢查通過');
+            
+        } catch (error) {
+            const log = window.log || { 
+                error: (msg, data) => console.error(`❌ ${msg}`, data || '')
+            };
+            
+            log.error('FVG渲染器初始化失敗', error.message);
+            this.fvgRenderer = null;
+            
+            // 簡化的故障排除信息
+            if (window.log && window.log.debug) {
+                window.log.debug('FVG渲染器故障排除', {
+                    optimizedRenderer: !!window.FVGRendererOptimized,
+                    chart: !!this.chart,
+                    candlestickSeries: !!this.candlestickSeries,
+                    error: error.message
+                });
+            }
+        }
+    }
+
+    /**
+     * 獲取版本信息API - 簡化版本信息
+     */
+    getVersionInfo() {
+        return {
+            fvgRendererType: 'multiline',
+            lightweightChartsVersion: LightweightCharts.version || 'unknown',
+            renderingMethod: 'LineSeries-based multi-line',
+            rendererStatus: this.fvgRenderer ? 'loaded' : 'failed',
+            stats: this.fvgRenderer ? this.fvgRenderer.getStats() : null
+        };
     }
 
     /**
@@ -325,12 +403,10 @@ class ChartManager {
     }
 
     /**
-     * 檢查是否使用v5渲染器
+     * 檢查是否使用優化渲染器
      */
-    isUsingV5Renderer() {
-        return this.fvgRenderer && typeof this.fvgRenderer.isUsingV5Renderer === 'function' 
-            ? this.fvgRenderer.isUsingV5Renderer() 
-            : false;
+    isUsingOptimizedRenderer() {
+        return this.fvgRenderer instanceof window.FVGRendererOptimized;
     }
 
     /**
@@ -340,27 +416,162 @@ class ChartManager {
         // 響應式調整
         window.addEventListener('resize', () => this.handleResize());
 
-        // 圖表點擊事件（畫線用）
+        // 圖表點擊事件（畫線用）- 暫時禁用測試細線問題
+        /*
         this.chart.subscribeClick((param) => {
             if (this.isDrawingLine && param.point) {
                 this.addHorizontalLine(param);
             }
         });
+        */
     }
 
     /**
      * 更新圖表數據
      */
     updateData(data) {
-        const candleData = data.map(item => ({
-            time: item.time,
-            open: item.open,
-            high: item.high,
-            low: item.low,
-            close: item.close,
-        }));
+        console.log('🔍 CHECKPOINT-CHARTMGR-INPUT: ChartManager收到數據', {
+            dataType: typeof data,
+            isArray: Array.isArray(data),
+            length: data ? data.length : 0,
+            sample: data && data.length > 0 ? data[0] : null
+        });
 
-        this.candlestickSeries.setData(candleData);
+        if (!data || !Array.isArray(data)) {
+            const error = new Error(`ChartManager.updateData: 無效數據類型 ${typeof data}`);
+            console.error('❌ CHECKPOINT-CHARTMGR-INVALID:', error.message);
+            throw error;
+        }
+
+        if (data.length === 0) {
+            console.warn('⚠️ CHECKPOINT-CHARTMGR-EMPTY: 收到空數據陣列');
+            return [];
+        }
+
+        // 驗證並轉換數據
+        const candleData = [];
+        const invalidItems = [];
+
+        for (let i = 0; i < data.length; i++) {
+            const item = data[i];
+            
+            // 檢查每個數據項
+            if (!item) {
+                invalidItems.push(`第${i}項為null/undefined`);
+                continue;
+            }
+
+            // 檢查必要字段
+            const requiredFields = ['time', 'open', 'high', 'low', 'close'];
+            const missingFields = requiredFields.filter(field => 
+                item[field] === null || item[field] === undefined || 
+                (field !== 'time' && (isNaN(item[field]) || !isFinite(item[field])))
+            );
+
+            if (missingFields.length > 0) {
+                invalidItems.push(`第${i}項缺少有效字段: ${missingFields.join(', ')} (值: ${JSON.stringify(item)})`);
+                continue;
+            }
+
+            // 轉換為圖表格式 - 加強數據驗證
+            const open = parseFloat(item.open);
+            const high = parseFloat(item.high);
+            const low = parseFloat(item.low);
+            const close = parseFloat(item.close);
+            const time = parseInt(item.time);
+            
+            // 二次驗證：確保所有數字都是有效的
+            if (!isFinite(open) || !isFinite(high) || !isFinite(low) || !isFinite(close) || !isFinite(time)) {
+                invalidItems.push(`第${i}項數字轉換失敗: time=${time}, OHLC=[${open},${high},${low},${close}]`);
+                continue;
+            }
+            
+            // 邏輯驗證：高價不能低於低價
+            if (high < low) {
+                invalidItems.push(`第${i}項邏輯錯誤: high(${high}) < low(${low})`);
+                continue;
+            }
+            
+            candleData.push({
+                time: time,
+                open: open,
+                high: high,
+                low: low,
+                close: close,
+            });
+        }
+
+        // 報告驗證結果
+        if (invalidItems.length > 0) {
+            console.error('❌ CHECKPOINT-CHARTMGR-VALIDATION: 發現無效數據項:', {
+                totalCount: data.length,
+                validCount: candleData.length,
+                invalidCount: invalidItems.length,
+                invalidItems: invalidItems.slice(0, 5) // 只顯示前5個
+            });
+            
+            if (candleData.length === 0) {
+                throw new Error('ChartManager.updateData: 所有數據都無效');
+            }
+        }
+
+        console.log('✅ CHECKPOINT-CHARTMGR-VALIDATED: 數據驗證完成', {
+            originalCount: data.length,
+            validCount: candleData.length,
+            firstCandle: candleData[0],
+            lastCandle: candleData[candleData.length - 1]
+        });
+
+        // 檢查candlestickSeries是否存在
+        if (!this.candlestickSeries) {
+            const error = new Error('ChartManager.updateData: candlestickSeries未初始化');
+            console.error('❌ CHECKPOINT-CHARTMGR-NO-SERIES:', error.message);
+            console.error('嘗試重新初始化K線系列...');
+            
+            try {
+                this.candlestickSeries = this.createCandlestickSeries();
+                if (!this.candlestickSeries) {
+                    throw new Error('K線系列重新初始化失敗');
+                }
+                console.log('✅ K線系列重新初始化成功');
+            } catch (reinitError) {
+                console.error('❌ K線系列重新初始化失敗:', reinitError);
+                throw new Error(`candlestickSeries未初始化且無法重新創建: ${reinitError.message}`);
+            }
+        }
+
+        // 最終安全檢查
+        if (!this.candlestickSeries || typeof this.candlestickSeries.setData !== 'function') {
+            throw new Error('candlestickSeries不存在或setData方法不可用');
+        }
+        
+        // 數據最終驗證
+        if (!candleData || !Array.isArray(candleData) || candleData.length === 0) {
+            throw new Error('經過驗證的candleData無效或為空');
+        }
+        
+        try {
+            this.candlestickSeries.setData(candleData);
+            console.log('✅ CHECKPOINT-CHARTMGR-SUCCESS: 圖表數據設置成功');
+        } catch (setDataError) {
+            console.error('❌ CHECKPOINT-CHARTMGR-SETDATA-FAILED:', setDataError);
+            console.error('setDataError詳情:', {
+                message: setDataError.message,
+                stack: setDataError.stack,
+                candlestickSeries: !!this.candlestickSeries,
+                chart: !!this.chart,
+                dataLength: candleData.length,
+                sampleData: candleData.slice(0, 3)
+            });
+            throw new Error(`ChartManager.setData 失敗: ${setDataError.message}`);
+        }
+
+        // 設置FVG渲染器的時間範圍（修復版本需要）
+        if (this.fvgRenderer && typeof this.fvgRenderer.setChartTimeRange === 'function') {
+            this.fvgRenderer.setChartTimeRange(candleData);
+            console.log('📅 已設置FVG渲染器時間範圍');
+        }
+        
         return candleData;
     }
 
@@ -368,28 +579,51 @@ class ChartManager {
      * 重置縮放
      */
     resetZoom() {
-        if (!this.chart || !this.candlestickSeries) return;
+        if (!this.chart || !this.candlestickSeries) {
+            console.warn('resetZoom: 圖表或K線系列不存在');
+            return;
+        }
 
         try {
+            // 檢查timeScale方法是否存在
+            if (!this.chart.timeScale || typeof this.chart.timeScale !== 'function') {
+                console.error('resetZoom: timeScale方法不存在');
+                return;
+            }
+
             // 嘗試獲取K線數據
             let candleData = null;
             
             if (typeof this.candlestickSeries.data === 'function') {
-                candleData = this.candlestickSeries.data();
+                try {
+                    candleData = this.candlestickSeries.data();
+                } catch (dataError) {
+                    console.warn('resetZoom: 無法獲取K線數據:', dataError);
+                }
             }
             
-            if (candleData && candleData.length > 0) {
+            if (candleData && Array.isArray(candleData) && candleData.length > 0) {
                 const defaultVisibleBars = (window.CONFIG?.CHART?.DEFAULT_VISIBLE_CANDLES) || 400;
                 const visibleBars = Math.min(defaultVisibleBars, candleData.length);
                 const lastIndex = candleData.length - 1;
                 const firstIndex = Math.max(0, lastIndex - visibleBars + 1);
 
-                this.chart.timeScale().setVisibleRange({
-                    from: candleData[firstIndex].time,
-                    to: candleData[lastIndex].time
-                });
+                // 驗證數據項是否有time屬性
+                const firstTime = candleData[firstIndex]?.time;
+                const lastTime = candleData[lastIndex]?.time;
+                
+                if (firstTime && lastTime) {
+                    this.chart.timeScale().setVisibleRange({
+                        from: firstTime,
+                        to: lastTime
+                    });
+                } else {
+                    console.warn('resetZoom: K線數據缺少time屬性，使用fitContent');
+                    this.chart.timeScale().fitContent();
+                }
             } else {
                 // 如果無法獲取數據，進行基本的縮放重置
+                console.log('resetZoom: 無K線數據，使用fitContent');
                 this.chart.timeScale().fitContent();
             }
 
@@ -579,6 +813,7 @@ class ChartManager {
      * 獲取FVG渲染器
      */
     getFVGRenderer() {
+        // 簡單返回，避免遞迴初始化導致堆棧溢出
         return this.fvgRenderer;
     }
 

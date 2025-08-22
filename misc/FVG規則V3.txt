@@ -1,0 +1,28 @@
+多頭(C.Close > C.Open)
+C.Open > L.High and L.High < R.Low
+FVG 區間：[L.High, R.Low]
+形成點：idx = R
+
+左界：left_idx = L（FVG從L的時間點開始, 從L.High開始）
+
+空頭（C.Close < C.Open）
+
+C.Open < L.Low and L.Low > R.High
+
+FVG 區間：[R.High, L.Low]
+
+形成點：idx = R
+
+左界：left_idx = L （FVG從L的時間點開始, 從L.Low開始）
+
+
+
+
+
+Cleared FVG(FVG消失條件)
+在FVG形成之後的往右40個K線 如果存在一個K線Close收於L的遠端點以外 那就消除FVG
+# for each active fvg
+if f.type == "bear" and Close[j] >= L.High:   clear
+if f.type == "bull" and Close[j] <= L.Low:   clear
+
+之後會有動態的偵測 動態偵測只需要補上動態當下的FVG繪製 只要K線一結束 就可以套用上面的規則了

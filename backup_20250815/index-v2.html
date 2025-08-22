@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交易圖表系統 - 紐約開盤前分析</title>
+    <link rel="stylesheet" href="style-v2.css">
+</head>
+<body>
+    <!-- 主要佈局容器 -->
+    <div class="main-layout">
+        <!-- 左側固定技術指標面板 -->
+        <div id="indicators-panel" class="indicators-panel">
+            <!-- 面板控制區 -->
+            <div class="panel-control">
+                <button id="panel-toggle" class="panel-toggle" title="收合/展開">☰</button>
+                <span class="panel-title">技術指標</span>
+            </div>
+            
+            <!-- 指標內容區 -->
+            <div class="indicators-content">
+                <!-- 價格動作指標 -->
+                <div class="indicator-category expanded" data-category="price-action">
+                    <div class="indicator-category-header">
+                        <span>價格動作</span>
+                        <span class="category-arrow">▶</span>
+                    </div>
+                    <div class="indicator-list">
+                        <label class="indicator-item">
+                            <input type="checkbox" id="fvg-checkbox" checked>
+                            <span class="indicator-name">Fair Value Gap (FVG)</span>
+                            <button class="settings-btn" data-indicator="fvg" title="設定參數">⚙</button>
+                        </label>
+                        
+                        <label class="indicator-item">
+                            <input type="checkbox" id="sr-checkbox">
+                            <span class="indicator-name">支撐阻力位</span>
+                            <button class="settings-btn" data-indicator="sr" title="設定參數">⚙</button>
+                        </label>
+                        
+                        <label class="indicator-item">
+                            <input type="checkbox" id="pivot-checkbox">
+                            <span class="indicator-name">樞紐點</span>
+                            <button class="settings-btn" data-indicator="pivot" title="設定參數">⚙</button>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- 移動平均線 -->
+                <div class="indicator-category" data-category="moving-averages">
+                    <div class="indicator-category-header">
+                        <span>移動平均線</span>
+                        <span class="category-arrow">▶</span>
+                    </div>
+                    <div class="indicator-list">
+                        <label class="indicator-item">
+                            <input type="checkbox" id="sma-checkbox">
+                            <span class="indicator-name">簡單移動平均 (SMA)</span>
+                            <button class="settings-btn" data-indicator="sma" title="設定參數">⚙</button>
+                        </label>
+                        
+                        <label class="indicator-item">
+                            <input type="checkbox" id="ema-checkbox">
+                            <span class="indicator-name">指數移動平均 (EMA)</span>
+                            <button class="settings-btn" data-indicator="ema" title="設定參數">⚙</button>
+                        </label>
+                        
+                        <label class="indicator-item">
+                            <input type="checkbox" id="bb-checkbox">
+                            <span class="indicator-name">布林通道 (BB)</span>
+                            <button class="settings-btn" data-indicator="bb" title="設定參數">⚙</button>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- 震盪指標 -->
+                <div class="indicator-category" data-category="oscillators">
+                    <div class="indicator-category-header">
+                        <span>震盪指標</span>
+                        <span class="category-arrow">▶</span>
+                    </div>
+                    <div class="indicator-list">
+                        <label class="indicator-item">
+                            <input type="checkbox" id="rsi-checkbox">
+                            <span class="indicator-name">相對強弱指數 (RSI)</span>
+                            <button class="settings-btn" data-indicator="rsi" title="設定參數">⚙</button>
+                        </label>
+                        
+                        <label class="indicator-item">
+                            <input type="checkbox" id="macd-checkbox">
+                            <span class="indicator-name">MACD</span>
+                            <button class="settings-btn" data-indicator="macd" title="設定參數">⚙</button>
+                        </label>
+                        
+                        <label class="indicator-item">
+                            <input type="checkbox" id="stoch-checkbox">
+                            <span class="indicator-name">隨機指標 (Stochastic)</span>
+                            <button class="settings-btn" data-indicator="stoch" title="設定參數">⚙</button>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- 成交量指標 -->
+                <div class="indicator-category" data-category="volume">
+                    <div class="indicator-category-header">
+                        <span>成交量指標</span>
+                        <span class="category-arrow">▶</span>
+                    </div>
+                    <div class="indicator-list">
+                        <label class="indicator-item">
+                            <input type="checkbox" id="volume-checkbox">
+                            <span class="indicator-name">成交量</span>
+                            <button class="settings-btn" data-indicator="volume" title="設定參數">⚙</button>
+                        </label>
+                        
+                        <label class="indicator-item">
+                            <input type="checkbox" id="vwap-checkbox">
+                            <span class="indicator-name">成交量加權平均價 (VWAP)</span>
+                            <button class="settings-btn" data-indicator="vwap" title="設定參數">⚙</button>
+                        </label>
+                        
+                        <label class="indicator-item">
+                            <input type="checkbox" id="obv-checkbox">
+                            <span class="indicator-name">能量潮 (OBV)</span>
+                            <button class="settings-btn" data-indicator="obv" title="設定參數">⚙</button>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 右側主內容區 -->
+        <div class="main-content">
+            <div class="container">
+                <!-- 頂部控制面板 -->
+                <div class="control-panel">
+                    <div class="info-section">
+                        <h1>交易圖表系統</h1>
+                        <div class="date-info">
+                            <span id="current-date">載入中...</span>
+                            <span id="market-info">載入中...</span>
+                            <span id="holiday-info" class="holiday-badge" style="display: none;">美國假日</span>
+                        </div>
+                    </div>
+                    
+                    <div class="controls">
+                        <!-- 操作按鈕 -->
+                        <div class="action-buttons">
+                            <button id="refresh-btn" class="btn btn-primary">隨機日期</button>
+                            <button id="reset-zoom-btn" class="btn btn-secondary">重置縮放</button>
+                            <button id="fvg-toggle-btn" class="btn btn-toggle active">FVG 開</button>
+                            <button id="test-scaling-btn" class="btn btn-warning">測試縮放</button>
+                            <button id="draw-line-btn" class="btn btn-tool">畫線</button>
+                            <button id="clear-lines-btn" class="btn btn-danger">清除線</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 時間刻度分頁 -->
+                <div class="timeframe-tabs">
+                    <button class="tab-btn" data-timeframe="M1">M1</button>
+                    <button class="tab-btn" data-timeframe="M5">M5</button>
+                    <button class="tab-btn active" data-timeframe="M15">M15</button>
+                    <button class="tab-btn" data-timeframe="H1">H1</button>
+                    <button class="tab-btn" data-timeframe="H4">H4</button>
+                    <button class="tab-btn" data-timeframe="D1">D1</button>
+                </div>
+                
+                <!-- 播放控制面板 -->
+                <div class="playback-panel">
+                    <div class="playback-controls">
+                        <button id="play-btn" class="btn btn-play">開始</button>
+                        <button id="pause-btn" class="btn btn-pause" disabled>暫停</button>
+                        
+                        <div class="speed-selector">
+                            <label>播放速度：</label>
+                            <select id="speed-select">
+                                <option value="1">1秒/根</option>
+                                <option value="2">2秒/根</option>
+                                <option value="5" selected>5秒/根</option>
+                                <option value="10">10秒/根</option>
+                                <option value="20">20秒/根</option>
+                                <option value="30">30秒/根</option>
+                            </select>
+                        </div>
+                        
+                        <div class="playback-info">
+                            <span id="playback-time">播放時間: --</span>
+                            <span id="countdown">下一根: --</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 圖表容器 -->
+                <div class="chart-container">
+                    <div id="chart"></div>
+                    <div id="loading" class="loading">
+                        <div class="spinner"></div>
+                        <p>正在載入圖表資料...</p>
+                    </div>
+                    
+                    <!-- v5載入進度顯示 -->
+                    <div id="v5-loading" class="backend-loading" style="display: block;">
+                        <div class="backend-loading-content">
+                            <h3>Lightweight Charts v5 系統啟動中...</h3>
+                            <div class="progress-container">
+                                <div id="v5-progress-bar" class="progress-bar" style="width: 0%"></div>
+                            </div>
+                            <div class="progress-info">
+                                <span id="v5-progress-text">正在檢測版本...</span>
+                                <span id="v5-progress-percent">0%</span>
+                            </div>
+                            <div id="v5-progress-steps" class="progress-steps">
+                                <div class="step">準備載入 Lightweight Charts...</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 版本顯示 -->
+                    <div style="position: absolute; top: 10px; right: 10px; color: #666; font-size: 12px;" id="version-info">
+                        載入中...
+                    </div>
+                </div>
+                
+                <!-- 狀態列 -->
+                <div class="status-bar">
+                    <div class="status-info">
+                        <span id="candle-count">K線數量: --</span>
+                        <span id="fvg-count">FVG數量: --</span>
+                        <span id="time-range">時間範圍: --</span>
+                        <span id="dst-status">時區狀態: --</span>
+                        <span id="chart-version">圖表版本: --</span>
+                    </div>
+                    <div class="hover-info">
+                        <span id="hover-data">將滑鼠移至圖表查看詳細資料</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 引入 Lightweight Charts v5.0.0 -->
+    <script>
+        // 更新進度條
+        function updateProgress(percent, text, step) {
+            const progressBar = document.getElementById('v5-progress-bar');
+            const progressText = document.getElementById('v5-progress-text');
+            const progressPercent = document.getElementById('v5-progress-percent');
+            const progressSteps = document.getElementById('v5-progress-steps');
+            
+            if (progressBar) progressBar.style.width = percent + '%';
+            if (progressText) progressText.textContent = text;
+            if (progressPercent) progressPercent.textContent = percent + '%';
+            if (step && progressSteps) {
+                const stepDiv = document.createElement('div');
+                stepDiv.className = 'step';
+                stepDiv.textContent = `[${new Date().toLocaleTimeString()}] ${step}`;
+                progressSteps.appendChild(stepDiv);
+                
+                // 自動滾動到最新步驟
+                progressSteps.scrollTop = progressSteps.scrollHeight;
+            }
+        }
+
+        // 檢查後端API狀態
+        async function checkBackendStatus() {
+            updateProgress(5, '檢查後端API狀態...', '正在連接後端服務');
+            
+            try {
+                // 嘗試連接健康檢查端點
+                const response = await fetch('/api/health', {
+                    method: 'GET',
+                    signal: AbortSignal.timeout(5000)
+                });
+                
+                if (response.ok) {
+                    const healthData = await response.json();
+                    updateProgress(8, '後端API連接成功', `後端服務運行正常 - ${healthData.service}`);
+                    return true;
+                } else {
+                    updateProgress(8, '後端API響應異常', `HTTP ${response.status} - 請檢查後端狀態`);
+                    return false;
+                }
+            } catch (error) {
+                updateProgress(8, '後端API連接失敗', '警告: 無法連接後端，將繼續前端載入');
+                console.warn('後端檢查失敗，但繼續前端載入:', error);
+                console.log('提示: 請確認後端服務已啟動 (執行: cd src/backend && python app.py)');
+                return false; // 返回false但不阻止前端繼續
+            }
+        }
+
+        // 檢查並載入 Lightweight Charts v5
+        function loadLightweightCharts() {
+            updateProgress(10, '開始載入 Lightweight Charts...', '檢測CDN可用性');
+            
+            return new Promise((resolve, reject) => {
+                const cdnList = [
+                    // v5.0.0 優先使用
+                    'https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js',
+                    'https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js',
+                    // v4.1.3 作為回退
+                    'https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js',
+                    'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js'
+                ];
+                
+                let currentIndex = 0;
+                
+                function tryLoad() {
+                    if (currentIndex >= cdnList.length) {
+                        reject(new Error('所有 CDN 都無法載入 Lightweight Charts'));
+                        return;
+                    }
+                    
+                    const script = document.createElement('script');
+                    script.src = cdnList[currentIndex];
+                    
+                    script.onload = () => {
+                        console.log('Lightweight Charts 載入成功:', cdnList[currentIndex]);
+                        updateProgress(30, '檢測版本功能...', '圖表庫載入成功');
+                        
+                        // 檢查 API 是否可用
+                        if (typeof LightweightCharts !== 'undefined' && 
+                            typeof LightweightCharts.createChart === 'function') {
+                            
+                            // 檢測版本
+                            let version = 'v4.x';
+                            try {
+                                // 檢查v5特有功能
+                                if (typeof LightweightCharts.version === 'string') {
+                                    console.log('LightweightCharts version:', LightweightCharts.version);
+                                    if (LightweightCharts.version.startsWith('5.')) {
+                                        version = 'v5.x';
+                                    }
+                                } else {
+                                    // 檢查API差異
+                                    const testChart = LightweightCharts.createChart(document.createElement('div'), {
+                                        width: 100, height: 100
+                                    });
+                                    
+                                    // v5檢測：檢查addCustomSeries和新API
+                                    const hasCustomSeries = typeof testChart.addCustomSeries === 'function';
+                                    const hasCandlestickSeries = typeof testChart.addCandlestickSeries === 'function';
+                                    
+                                    console.log('API檢測:', { hasCustomSeries, hasCandlestickSeries });
+                                    
+                                    if (hasCustomSeries) {
+                                        version = 'v5.x';
+                                    } else if (hasCandlestickSeries) {
+                                        version = 'v4.x';
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn('版本檢測警告:', e);
+                                version = 'v4.x'; // 安全回退
+                            }
+                            
+                            console.log('檢測到 Lightweight Charts 版本:', version);
+                            document.getElementById('version-info').textContent = `LWC ${version}`;
+                            updateProgress(50, `版本檢測完成: ${version}`, `確認使用 ${version}`);
+                            
+                            resolve(version);
+                        } else {
+                            console.warn('Lightweight Charts API 不完整');
+                            currentIndex++;
+                            tryLoad();
+                        }
+                    };
+                    
+                    script.onerror = () => {
+                        console.warn('CDN 載入失敗:', cdnList[currentIndex]);
+                        currentIndex++;
+                        tryLoad();
+                    };
+                    
+                    document.head.appendChild(script);
+                }
+                
+                tryLoad();
+            });
+        }
+        
+        // 載入多個腳本的輔助函數
+        function loadModules(modules, callback) {
+            console.log(`開始載入 ${modules.length} 個模組`);
+            let loaded = 0;
+            
+            if (modules.length === 0) {
+                console.log('沒有模組需要載入');
+                callback();
+                return;
+            }
+            
+            modules.forEach(module => {
+                console.log(`正在載入模組: ${module}`);
+                const script = document.createElement('script');
+                script.src = module;
+                script.onload = () => {
+                    loaded++;
+                    const progress = 70 + (loaded / modules.length) * 15; // 70-85%
+                    updateProgress(progress, `載入模組 (${loaded}/${modules.length})`, `${module}`);
+                    console.log(`模組載入成功 (${loaded}/${modules.length}): ${module}`);
+                    
+                    if (loaded === modules.length) {
+                        console.log('所有模組載入完成，執行回調');
+                        callback();
+                    }
+                };
+                script.onerror = (error) => {
+                    console.error(`模組載入失敗: ${module}`, error);
+                    updateProgress(70 + (loaded / modules.length) * 15, `模組載入失敗: ${module}`, `${module} 載入失敗`);
+                    alert(`系統模組載入失敗: ${module}`);
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        // 主要啟動流程
+        async function startSystem() {
+            try {
+                // 1. 檢查後端狀態
+                const backendOk = await checkBackendStatus();
+                if (!backendOk) {
+                    updateProgress(8, '後端服務不可用', '警告: 後端可能需要重新啟動');
+                    // 繼續載入前端，但提醒用戶
+                }
+                
+                // 2. 載入圖表庫
+                const version = await loadLightweightCharts();
+                console.log('開始載入主程式... 版本:', version);
+                
+                return version;
+            } catch (error) {
+                console.error('系統啟動失敗:', error);
+                updateProgress(0, '系統啟動失敗', `錯誤: ${error.message}`);
+                throw error;
+            }
+        }
+
+        // 載入完成後初始化
+        startSystem()
+            .then((version) => {
+                console.log('Lightweight Charts 版本確認:', version);
+                
+                // 先載入聚合器
+                const aggregatorScript = document.createElement('script');
+                aggregatorScript.src = 'candleAggregator.js';
+                
+                aggregatorScript.onload = () => {
+                    console.log('CandleAggregator 載入成功');
+                    updateProgress(60, '載入核心模組...', 'CandleAggregator 載入完成');
+                    console.log('開始載入其他模組...');
+                    
+                    // 根據版本載入不同的模組
+                    let modules = ['config.js'];
+                    
+                    if (version.startsWith('v5')) {
+                        console.log('載入 v5 專用模組');
+                        modules.push('fvg-renderer-v5.js');
+                        updateProgress(65, '準備 v5 FVG 渲染器...', '使用 v5 專用渲染器');
+                    } else {
+                        console.log('載入 v4 兼容模組');
+                        modules.push('fvg-custom-series.js', 'fvg-renderer.js');
+                        updateProgress(65, '準備 v4 兼容渲染器...', '使用 v4 兼容模式');
+                    }
+                    
+                    modules.push('chart-manager.js', 'data-manager.js', 'playback-manager.js', 'event-manager.js');
+                    
+                    // v5測試版加載測試腳本
+                    if (version.startsWith('v5')) {
+                        modules.push('test-fvg-v5.js');
+                    }
+                    
+                    console.log('要載入的模組:', modules);
+                    updateProgress(70, '載入管理器模組...', `載入 ${modules.length} 個模組`);
+                    
+                    loadModules(modules, () => {
+                        console.log('所有模組載入完成，開始載入主程式 script-v2.js');
+                        updateProgress(85, '載入主程式...', '所有模組載入完成');
+                        
+                        // 最後載入主程式
+                        const script = document.createElement('script');
+                        script.src = 'script-v2.js';
+                        script.onload = () => {
+                            console.log('script-v2.js 載入成功');
+                            updateProgress(95, '初始化系統...', '主程式載入完成');
+                            
+                            // 監聽JavaScript錯誤
+                            window.addEventListener('error', (event) => {
+                                console.error('JavaScript錯誤:', event.error);
+                                updateProgress(95, '系統初始化錯誤', `錯誤: ${event.error.message}`);
+                            });
+                            
+                            window.addEventListener('unhandledrejection', (event) => {
+                                console.error('Promise錯誤:', event.reason);
+                                updateProgress(95, '系統初始化錯誤', `Promise錯誤: ${event.reason}`);
+                            });
+                            
+                            // 詳細監控系統初始化
+                            let initCheckCount = 0;
+                            const maxChecks = 20; // 最多檢查20次 (10秒)
+                            
+                            const initChecker = setInterval(() => {
+                                initCheckCount++;
+                                
+                                console.log(`[初始化檢查 ${initCheckCount}/${maxChecks}] window.app:`, !!window.app);
+                                if (window.app) {
+                                    console.log('window.app.chart:', !!window.app.chart);
+                                    console.log('window.app.chartManager:', !!window.app.chartManager);
+                                    console.log('window.app.error:', window.app.error);
+                                    if (window.app.error) {
+                                        console.log('window.app.errorMessage:', window.app.errorMessage);
+                                    }
+                                }
+                                
+                                if (window.app && window.app.chart && !window.app.error) {
+                                    // 成功初始化
+                                    clearInterval(initChecker);
+                                    const chartVersion = version;
+                                    document.getElementById('chart-version').textContent = `圖表: ${chartVersion}`;
+                                    updateProgress(100, '系統就緒！', '交易圖表系統啟動完成');
+                                    
+                                    // 隱藏進度條
+                                    setTimeout(() => {
+                                        const v5Loading = document.getElementById('v5-loading');
+                                        if (v5Loading) {
+                                            v5Loading.style.display = 'none';
+                                        }
+                                    }, 2000);
+                                    
+                                } else if (window.app && window.app.error) {
+                                    // 初始化失敗，但有錯誤信息
+                                    clearInterval(initChecker);
+                                    updateProgress(90, '系統初始化失敗', `錯誤: ${window.app.errorMessage}`);
+                                    console.error('系統初始化失敗:', window.app.errorMessage);
+                                    
+                                } else if (initCheckCount >= maxChecks) {
+                                    // 超時失敗
+                                    clearInterval(initChecker);
+                                    updateProgress(90, '系統初始化超時', '請檢查控制台錯誤訊息');
+                                    console.error('系統初始化超時 - 請檢查是否有JavaScript錯誤');
+                                    
+                                } else {
+                                    // 更新等待狀態
+                                    const waitMsg = `等待系統初始化 (${initCheckCount}/${maxChecks})`;
+                                    updateProgress(90 + (initCheckCount / maxChecks) * 8, waitMsg, `檢查應用程式物件...`);
+                                }
+                            }, 500); // 每500ms檢查一次
+                        };
+                        script.onerror = (error) => {
+                            console.error('script-v2.js 載入失敗:', error);
+                        };
+                        document.head.appendChild(script);
+                    });
+                };
+                
+                aggregatorScript.onerror = () => {
+                    console.error('CandleAggregator 載入失敗');
+                    alert('系統載入失敗，請重新整理頁面。');
+                };
+                
+                document.head.appendChild(aggregatorScript);
+            })
+            .catch(error => {
+                console.error('圖表庫載入失敗:', error);
+                alert('圖表庫載入失敗，請檢查網路連線或嘗試重新整理頁面。');
+            });
+    </script>
+</body>
+</html>

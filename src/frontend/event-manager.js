@@ -44,13 +44,7 @@ class EventManager {
             });
         }
 
-        // FVG 開關按鈕
-        const fvgToggleBtn = document.getElementById('fvg-toggle-btn');
-        if (fvgToggleBtn) {
-            fvgToggleBtn.addEventListener('click', () => {
-                this.toggleFVG();
-            });
-        }
+        // FVG 開關按鈕已移除，改用左側面板控制
 
         // 畫線按鈕
         const drawLineBtn = document.getElementById('draw-line-btn');
@@ -129,10 +123,14 @@ class EventManager {
                 this.updateIndicatorItemState('fvg-checkbox', this.showFVG);
                 
                 const fvgRenderer = this.chartManager.getFVGRenderer();
-                fvgRenderer.setVisible(this.showFVG);
-                
-                if (this.showFVG) {
-                    this.drawFVGs();
+                if (fvgRenderer) {
+                    fvgRenderer.setVisible(this.showFVG);
+                    
+                    if (this.showFVG) {
+                        this.drawFVGs();
+                    }
+                } else {
+                    console.error('❌ FVG渲染器未初始化（checkbox事件）');
                 }
             });
         }
@@ -224,6 +222,12 @@ class EventManager {
         
         console.log('繪製FVG - 當前數據:', currentData?.fvgs?.length || 0, '個FVG');
         console.log('FVG顯示狀態:', this.showFVG);
+        console.log('FVG渲染器存在:', !!fvgRenderer);
+        
+        if (!fvgRenderer) {
+            console.error('❌ FVG渲染器未初始化');
+            return;
+        }
         
         if (currentData && currentData.fvgs && this.showFVG) {
             console.log('開始繪製FVG...');
@@ -286,19 +290,18 @@ class EventManager {
             this.updateIndicatorItemState('fvg-checkbox', this.showFVG);
         }
         
-        // 更新按鈕狀態
-        const btn = document.getElementById('fvg-toggle-btn');
-        if (btn) {
-            btn.textContent = this.showFVG ? 'FVG 開' : 'FVG 關';
-            btn.classList.toggle('active', this.showFVG);
-        }
+        // 按鈕已移除，只需同步側邊欄即可
 
         // 更新FVG顯示
         const fvgRenderer = this.chartManager.getFVGRenderer();
-        fvgRenderer.setVisible(this.showFVG);
-        
-        if (this.showFVG) {
-            this.drawFVGs();
+        if (fvgRenderer) {
+            fvgRenderer.setVisible(this.showFVG);
+            
+            if (this.showFVG) {
+                this.drawFVGs();
+            }
+        } else {
+            console.error('❌ FVG渲染器未初始化（toggleFVG）');
         }
     }
 

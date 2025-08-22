@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交易圖表系統 - V3載入測試版</title>
+    
+    <!-- 載入新的載入配置 -->
+    <script src="loading-config.js"></script>
+    
+    <link rel="stylesheet" href="style-v2.css">
+    
+    <style>
+        /* 測試版本標識 */
+        .test-banner {
+            position: fixed;
+            top: 0;
+            right: 0;
+            background: #ff6b35;
+            color: white;
+            padding: 8px 16px;
+            font-size: 12px;
+            z-index: 10000;
+            border-radius: 0 0 0 8px;
+        }
+        
+        /* 載入模式切換器 */
+        .mode-switcher {
+            position: fixed;
+            top: 40px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            z-index: 9999;
+            font-size: 12px;
+        }
+        
+        .mode-switcher button {
+            margin: 2px;
+            padding: 4px 8px;
+            font-size: 11px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .mode-switcher button.active {
+            background: #4CAF50;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <!-- 測試版本標識 -->
+    <div class="test-banner">V3載入系統測試版</div>
+    
+    <!-- 載入模式切換器 -->
+    <div class="mode-switcher">
+        <div>載入模式:</div>
+        <button onclick="switchMode('production')" id="mode-production">生產</button>
+        <button onclick="switchMode('debug')" id="mode-debug">調試</button>
+        <button onclick="switchMode('development')" id="mode-development">開發</button>
+        <br>
+        <small>當前: <span id="current-mode">auto</span></small>
+    </div>
+
+    <!-- 載入進度覆蓋層 -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-container">
+            <div class="loading-header">
+                <h2>交易圖表系統載入中 (V3)</h2>
+                <div class="loading-subtitle">使用新的智能載入系統...</div>
+            </div>
+            
+            <div class="progress-section">
+                <div class="progress-bar-container">
+                    <div id="progress-bar" class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                    <div id="progress-text" class="progress-text">0%</div>
+                </div>
+                
+                <div id="status-text" class="current-step">初始化載入系統...</div>
+                <div id="detail-text" class="current-file">準備載入核心模組</div>
+                
+                <div class="details-section">
+                    <div id="time-info" class="time-info">
+                        <span id="elapsed-time">已用時間: 0s</span>
+                        <span id="module-count">模組: 0/0</span>
+                    </div>
+                    <div id="loading-details" class="loading-details"></div>
+                </div>
+            </div>
+            
+            <!-- 載入統計 (調試用) -->
+            <div id="loading-stats" style="margin-top: 20px; font-size: 12px; color: #666; display: none;">
+                <details>
+                    <summary>載入統計詳情</summary>
+                    <div id="stats-content"></div>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主要佈局容器 (沿用現有結構) -->
+    <div class="main-layout">
+        <!-- 左側控制面板 -->
+        <div class="left-panel">
+            <div class="control-section">
+                <h3>圖表控制</h3>
+                
+                <!-- 時間框架選擇 -->
+                <div class="control-group">
+                    <label for="timeframe-select">時間框架:</label>
+                    <select id="timeframe-select" class="timeframe-selector">
+                        <option value="M15" selected>15分鐘</option>
+                        <option value="M30">30分鐘</option>
+                        <option value="H1">1小時</option>
+                        <option value="H4">4小時</option>
+                        <option value="D1">日線</option>
+                    </select>
+                </div>
+                
+                <!-- 日期選擇 -->
+                <div class="control-group">
+                    <label for="date-picker">選擇日期:</label>
+                    <input type="date" id="date-picker" class="date-picker">
+                    <button id="random-date-btn" class="random-btn">隨機日期</button>
+                </div>
+                
+                <!-- FVG控制 -->
+                <div class="control-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="fvg-toggle" checked>
+                        <span class="checkmark"></span>
+                        顯示FVG
+                    </label>
+                    <div id="fvg-stats" class="fvg-stats"></div>
+                </div>
+                
+                <!-- 播放控制 -->
+                <div class="control-group playback-controls">
+                    <h4>市場播放</h4>
+                    <div class="playback-buttons">
+                        <button id="play-btn" class="playback-btn">▶️</button>
+                        <button id="pause-btn" class="playback-btn">⏸️</button>
+                        <button id="stop-btn" class="playback-btn">⏹️</button>
+                    </div>
+                    <div class="speed-control">
+                        <label>播放速度:</label>
+                        <select id="playback-speed">
+                            <option value="1">1x</option>
+                            <option value="2" selected>2x</option>
+                            <option value="5">5x</option>
+                            <option value="10">10x</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 主要圖表區域 -->
+        <div class="chart-area">
+            <div class="chart-header">
+                <h1 id="chart-title">交易圖表系統</h1>
+                <div id="chart-info" class="chart-info">
+                    <span id="current-date">載入中...</span>
+                    <span id="candle-count">K線: --</span>
+                    <span id="fvg-count">FVG: --</span>
+                </div>
+            </div>
+            <div id="chart-container" class="chart-container"></div>
+        </div>
+
+        <!-- 右側信息面板 -->
+        <div class="right-panel">
+            <div class="info-section">
+                <h3>系統狀態</h3>
+                <div id="system-status" class="system-status">
+                    <div class="status-item">
+                        <span class="status-label">後端:</span>
+                        <span id="backend-status" class="status-value">檢查中...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">圖表:</span>
+                        <span id="chart-status" class="status-value">未初始化</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">數據:</span>
+                        <span id="data-status" class="status-value">未載入</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- FVG詳細信息 -->
+            <div class="info-section">
+                <h3>FVG信息</h3>
+                <div id="fvg-details" class="fvg-details">
+                    <div>等待數據載入...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- V3載入系統腳本 -->
+    <script>
+        // 載入系統控制器
+        class V3LoadingController {
+            constructor() {
+                this.startTime = Date.now();
+                this.loadingManager = null;
+                this.currentMode = this.detectMode();
+                this.updateModeUI();
+            }
+            
+            detectMode() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const mode = urlParams.get('mode');
+                if (mode && ['production', 'debug', 'development'].includes(mode)) {
+                    return mode;
+                }
+                
+                const saved = localStorage.getItem('v3LoadingMode');
+                if (saved && ['production', 'debug', 'development'].includes(saved)) {
+                    return saved;
+                }
+                
+                // 自動檢測
+                return window.LoadingConfig.detectRecommendedMode();
+            }
+            
+            updateModeUI() {
+                document.getElementById('current-mode').textContent = this.currentMode;
+                
+                // 更新按鈕狀態
+                document.querySelectorAll('.mode-switcher button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                document.getElementById(`mode-${this.currentMode}`).classList.add('active');
+                
+                // 調試模式顯示統計
+                if (this.currentMode !== 'production') {
+                    document.getElementById('loading-stats').style.display = 'block';
+                }
+            }
+            
+            async start() {
+                try {
+                    console.log(`🚀 V3載入系統啟動 (模式: ${this.currentMode})`);
+                    this.updateElapsedTime();
+                    
+                    // 載入載入管理器
+                    await this.loadScript('loading-manager-v2.js');
+                    
+                    // 創建管理器實例
+                    this.loadingManager = new LoadingManagerV2();
+                    window.loadingManager = this.loadingManager;
+                    
+                    // 設置載入模式
+                    this.loadingManager.setMode(this.currentMode);
+                    
+                    // 執行載入
+                    const result = await this.loadingManager.loadAll();
+                    
+                    if (result.success) {
+                        console.log('✅ V3載入系統成功');
+                        this.showStats(result);
+                        this.hideLoadingScreen();
+                    } else {
+                        console.error('❌ V3載入失敗:', result.error);
+                        this.showError(result.error, result);
+                    }
+                    
+                } catch (error) {
+                    console.error('💥 V3載入控制器失敗:', error);
+                    this.showError(error.message);
+                }
+            }
+            
+            loadScript(src) {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = src;
+                    script.onload = resolve;
+                    script.onerror = () => reject(new Error(`載入失敗: ${src}`));
+                    document.head.appendChild(script);
+                });
+            }
+            
+            showStats(result) {
+                const totalTime = Date.now() - this.startTime;
+                const stats = {
+                    mode: result.mode,
+                    totalTime: `${totalTime}ms`,
+                    moduleCount: `${result.loadedModules.length}/${result.loadedModules.length + result.failedModules.length}`,
+                    loadedModules: result.loadedModules,
+                    failedModules: result.failedModules
+                };
+                
+                document.getElementById('stats-content').innerHTML = `
+                    <div><strong>載入模式:</strong> ${stats.mode}</div>
+                    <div><strong>總時間:</strong> ${stats.totalTime}</div>
+                    <div><strong>模組數量:</strong> ${stats.moduleCount}</div>
+                    <div><strong>成功載入:</strong> ${stats.loadedModules.join(', ')}</div>
+                    ${stats.failedModules.length > 0 ? `<div><strong>失敗模組:</strong> ${stats.failedModules.join(', ')}</div>` : ''}
+                `;
+            }
+            
+            updateElapsedTime() {
+                const update = () => {
+                    const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                    const element = document.getElementById('elapsed-time');
+                    if (element) {
+                        element.textContent = `已用時間: ${elapsed}s`;
+                    }
+                };
+                
+                update();
+                this.timeInterval = setInterval(update, 1000);
+            }
+            
+            hideLoadingScreen() {
+                clearInterval(this.timeInterval);
+                document.getElementById('loading-overlay').style.display = 'none';
+                
+                // 觸發系統就緒事件
+                window.dispatchEvent(new CustomEvent('v3SystemReady'));
+            }
+            
+            showError(message, result = null) {
+                clearInterval(this.timeInterval);
+                document.getElementById('status-text').textContent = '載入失敗';
+                document.getElementById('detail-text').textContent = message;
+                
+                if (result) {
+                    this.showStats(result);
+                }
+            }
+        }
+        
+        // 模式切換功能
+        function switchMode(mode) {
+            localStorage.setItem('v3LoadingMode', mode);
+            const url = new URL(window.location);
+            url.searchParams.set('mode', mode);
+            window.location = url.toString();
+        }
+        
+        // 啟動V3載入系統
+        const v3Controller = new V3LoadingController();
+        
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => v3Controller.start());
+        } else {
+            v3Controller.start();
+        }
+        
+        // 監聽系統就緒事件
+        window.addEventListener('v3SystemReady', () => {
+            console.log('🎉 V3系統完全就緒');
+            
+            // 觸發原有的系統初始化 (如果存在)
+            if (window.initializeSystem) {
+                window.initializeSystem();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -11,7 +11,7 @@ class FVGRendererMultiline {
         this.settings = {
             showFVG: true,
             showFVGMarkers: false,
-            showClearedFVGs: true,  // 📊 默認顯示已清除FVG
+            showClearedFVGs: false,  // 📊 修正：預設不顯示已清除FVG，與配置保持一致
             maxLines: 130,  // 性能限制
             minLines: 4,
             performanceMode: false

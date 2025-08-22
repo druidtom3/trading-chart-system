@@ -637,3 +637,280 @@ body {
         flex-wrap: wrap;
     }
 }
+
+/* ===== 載入進度覆蓋層樣式 ===== */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    transition: opacity 0.5s ease;
+}
+
+.loading-container {
+    background: white;
+    border-radius: 15px;
+    padding: 40px;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    text-align: center;
+}
+
+.loading-header h2 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.loading-subtitle {
+    color: #7f8c8d;
+    margin-bottom: 30px;
+    font-size: 14px;
+}
+
+.progress-section {
+    margin-bottom: 20px;
+}
+
+.progress-bar-container {
+    position: relative;
+    margin-bottom: 15px;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 20px;
+    background: #ecf0f1;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3498db 0%, #2ecc71 100%);
+    border-radius: 10px;
+    transition: width 0.3s ease;
+    width: 0%;
+}
+
+.progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-weight: bold;
+    color: #2c3e50;
+    font-size: 12px;
+}
+
+.current-step {
+    font-size: 16px;
+    color: #2c3e50;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.current-file {
+    font-size: 12px;
+    color: #7f8c8d;
+    margin-bottom: 15px;
+    font-style: italic;
+}
+
+.details-section {
+    border-top: 1px solid #ecf0f1;
+    padding-top: 15px;
+}
+
+.time-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #95a5a6;
+    margin-bottom: 10px;
+}
+
+.loading-details {
+    max-height: 100px;
+    overflow-y: auto;
+    text-align: left;
+    background: #f8f9fa;
+    border-radius: 5px;
+    padding: 10px;
+}
+
+.step-info {
+    font-size: 11px;
+    color: #6c757d;
+    margin-bottom: 3px;
+    padding: 2px 0;
+}
+
+.step-info:last-child {
+    margin-bottom: 0;
+    color: #2ecc71;
+    font-weight: 500;
+}
+
+/* 載入動畫 */
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+.loading-container {
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.progress-fill {
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    animation: shine 2s infinite;
+}
+
+@keyframes shine {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+/* ========== FVG 多線條渲染器控制樣式 ========== */
+
+/* FVG子控制項目容器 */
+.sub-indicator-list {
+    margin-left: 20px;
+    padding: 8px 0;
+    border-left: 2px solid #e9ecef;
+    padding-left: 12px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    margin-top: 8px;
+}
+
+/* 子指標項目 */
+.sub-indicator-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.sub-indicator-item input[type="checkbox"] {
+    margin-right: 8px;
+    transform: scale(0.9);
+}
+
+.sub-indicator-name {
+    flex: 1;
+    margin-right: 8px;
+    font-weight: 500;
+}
+
+/* 性能模式選擇器 */
+.performance-select {
+    padding: 2px 6px;
+    border: 1px solid #ced4da;
+    border-radius: 3px;
+    background: white;
+    font-size: 11px;
+    color: #495057;
+    min-width: 120px;
+}
+
+.performance-select:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* FVG統計信息 */
+.fvg-stats {
+    background: #e9ecef;
+    padding: 8px;
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+}
+
+.stats-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+    color: #495057;
+}
+
+.stats-item span:first-child {
+    font-weight: 500;
+}
+
+.stats-item span:last-child {
+    font-family: 'Courier New', monospace;
+    color: #007bff;
+    font-weight: bold;
+}
+
+/* FVG指標項目展開效果 */
+.indicator-item:has(+ .sub-indicator-list) {
+    border-bottom: 1px solid #e9ecef;
+    padding-bottom: 8px;
+}
+
+/* 子控制項目動畫 */
+.sub-indicator-list {
+    animation: slideDown 0.3s ease-out;
+    transform-origin: top;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: scaleY(0);
+    }
+    to {
+        opacity: 1;
+        transform: scaleY(1);
+    }
+}
+
+/* 性能模式標識顏色 */
+.performance-select option[value="high"] { background: #d4edda; }
+.performance-select option[value="balanced"] { background: #fff3cd; }
+.performance-select option[value="performance"] { background: #f8d7da; }
+
+/* 響應式調整 - 小屏幕 */
+@media (max-width: 1200px) {
+    .sub-indicator-list {
+        margin-left: 15px;
+        padding-left: 8px;
+    }
+    
+    .sub-indicator-name {
+        font-size: 11px;
+    }
+    
+    .performance-select {
+        min-width: 100px;
+        font-size: 10px;
+    }
+}

@@ -1,0 +1,77 @@
+為什麼 FVG 「畫不出來」——全面排雷清單
+
+（依優先順序，由最常見 → 最隱晦）
+
+#	症狀	可能原因	關鍵程式碼／線索
+1	前端 data.fvgs 是 0	後端其實沒把資料送到前端（或被限定 display_limit）	DataProcessor.convert_for_frontend() 只在 display_limit 內挑最新 FVG
+2	UI 上 FVG 勾選框沒打勾	ensureFVGDisplay() 直接 return (所以資料與渲染器都沒叫)	script-v2.js 50-71 行
+3	Console 顯示「FVGRendererMultiline類 未載入」	chart-manager.initializeFVGRenderer() 找不到全域類別	chart-manager.js 14-25 行
+4	初始化後馬上被「禁用」	多次例外 → error-isolation 觸發 disableRenderer()	fvg-renderer-multiline.js 26-33 行
+5	v5 路徑：FVG 全被過濾掉	V5 renderer 只看 top / bot，但後端送的是 startPrice / endPrice → height = NaN → 被最小高度 1.0 濾掉	fvg-renderer-v5.js 27-31 行
+6	v4/Multiline 路徑：時間戳檢驗失敗	後端給「秒」，Renderer 有時期望「毫秒」，validateTimestampSafety() 直接 skip	fvg-renderer-multiline.js 24-29 行
+7	線條真的建了，但看不到	系列掛在 priceScaleId:'fvg-scale'，但從未 add / apply；圖表預設把未知刻度「折疊」	fvg-renderer-multiline.js 21-25 行
+8	建立 LineSeries 直接 throw	Library 版本 ≠ 呼叫方式（addSeries 與 addLineSeries 都不匹配）	createLineSeries() 裡的 fallback 邏輯
+9	播放模式時才消失	playbackOptimization.autoHideClearedFVGs 或 maxFVGsDuringPlayback 把它們砍掉	fvg-renderer-multiline.js 40-47 行
+10	數量太多、間隔太小	settings.maxLines、minLines 或 gap ≤ 0 被 Renderer 主動略過	fvg-renderer-multiline.js 11-17 行
+逐點深挖 & Debug 建議
+
+先看資料有沒有到瀏覽器
+
+console.log(window.currentData?.fvgs.length)
+
+
+若為 0，檢查後端 display_limit 或 API 是否攔截。
+
+確認 UI 控制項
+開發者工具搜尋 id="fvg-checkbox"，保證初始為 checked。或在載入完畢後強制 chartManager.fvgRenderer.setVisible(true)。
+
+模組載入順序
+在 <script> 中先載入 fvg-renderer-multiline.js 後載 chart-manager.js。缺少會直接觸發 initialize 錯誤（見上表 #3）。
+
+v5 / v4 資料結構不一致
+
+若你想走 v5 Custom Series，請在後端同時輸出 top / bot 欄位。
+
+frontend_fvg['top'] = max(fvg['start_price'], fvg['end_price'])
+frontend_fvg['bot'] = min(...)
+
+
+或在 FVGRendererV5.render() 前加一層 mapper。
+
+時間戳單位統一
+後端改用 毫秒，或在 Renderer 入口就
+
+if (ts < 1e12) ts *= 1000;
+
+
+免得卡在 validateTimestampSafety()。
+
+額外刻度問題
+
+chart.applyOptions({ priceScale: { id:'fvg-scale', visible:true }});
+
+
+或直接把 priceScaleId 改成 'right' 先驗證。
+
+檢查錯誤隔離計數器
+
+chartManager.fvgRenderer.getErrorStatus()
+
+
+若 isDisabled=true，先 enableRenderer() 再觀察 console log。
+
+版本相容
+
+LightweightCharts v5 ⇒ 用 chart.addSeries(LineSeries, …)
+
+v4 ⇒ chart.addLineSeries()
+如果兩者都失敗，createLineSeries() 已經列出所有 add-* 方法；跟著 console 步驟可複現。
+
+播放 / 性能模式
+若在回放環境才失效，關閉：
+
+chartManager.fvgRenderer.disablePlaybackMode();
+
+
+最後手段：開啟 DEBUG
+在 CONFIG.DEBUG=true 後，Renderer 會打印每條 FVG 的「已跳過」原因，直接跟著 log 即可。

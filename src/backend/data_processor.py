@@ -9,7 +9,7 @@ from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
 from utils.config import (DATA_DIR, CSV_FILES, DEFAULT_CANDLE_COUNT, LOG_DIR, RANDOM_DATE_CONFIG,
-                          FVG_CLEARING_WINDOW, CACHE_MAX_SIZE, CACHE_VERSION, 
+                          FVG_CLEARING_WINDOW, CACHE_MAX_SIZE, 
                           MAX_RECORDS_LIMIT, MEMORY_OPTIMIZATION_THRESHOLD)
 from utils.time_utils import datetime_to_timestamp, validate_timestamp
 try:
@@ -23,15 +23,7 @@ except ImportError:
 from backend.time_utils import TimeConverter
 from backend.fvg_detector_simple import FVGDetectorSimple
 from backend.us_holidays import holiday_detector
-from backend.candle_continuity_checker import CandleContinuityChecker
-try:
-    from backend.candle_continuity_checker_v2 import CandleContinuityCheckerV2
-    from utils.continuity_config import USE_V2_CHECKER, CONTINUITY_CHECK_MODE, SHOW_PROGRESS, ULTRA_FAST_STARTUP, SKIP_LARGE_FILES_IN_FAST_MODE
-except ImportError:
-    USE_V2_CHECKER = False
-    ULTRA_FAST_STARTUP = False
-    SKIP_LARGE_FILES_IN_FAST_MODE = []
-    print("注意: V2優化版本不可用，使用原版連續性檢查器")
+from backend.candle_continuity_checker_v2 import CandleContinuityCheckerV2
 
 # 設定 logging
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -49,33 +41,16 @@ class DataProcessor:
         self.fvg_detector_simple = FVGDetectorSimple(clearing_window=FVG_CLEARING_WINDOW)  # 簡化版本（無複雜時間轉換）
         self.vwap_available = {}  # 追蹤各時間框架是否有 VWAP 資料
         
-        # 新增：性能優化相關緩存 (優化內存使用)
-        self._response_cache = {}  # API響應緩存: {cache_key: result}
-        self._processed_data_cache = {}  # 預處理數據緩存: {timeframe: recent_data}
+        # 簡化緩存系統 - 只保留基本數據緩存
         self._cache_max_size = CACHE_MAX_SIZE  # 緩存最大條目數
         self._preload_days = 7  # 減少預載入天數 (從30降到7天)
         
-        # 選擇連續性檢查器版本
-        if USE_V2_CHECKER:
-            print(f"使用V2優化連續性檢查器 (模式: {CONTINUITY_CHECK_MODE})")
-            try:
-                from utils.continuity_config import FAST_STARTUP
-                fast_mode = FAST_STARTUP
-            except:
-                fast_mode = False
-                
-            if fast_mode:
-                print("啟用快速啟動模式")
-                
-            self.continuity_checker = CandleContinuityCheckerV2(
-                optimization_mode=CONTINUITY_CHECK_MODE,
-                show_progress=SHOW_PROGRESS
-            )
-            self.fast_startup = fast_mode
-        else:
-            print("使用原版連續性檢查器")
-            self.continuity_checker = CandleContinuityChecker()
-            self.fast_startup = False
+        # 統一使用V2連續性檢查器，移除選擇邏輯
+        print("使用V2優化連續性檢查器 (統一配置)")
+        self.continuity_checker = CandleContinuityCheckerV2(
+            optimization_mode='smart',  # 固定使用smart模式
+            show_progress=False         # 後端不需要進度條
+        )
             
         self.continuity_reports = {}  # 儲存連續性檢查報告
         
@@ -141,9 +116,8 @@ class DataProcessor:
             current_file += 1
             filepath = os.path.join(DATA_DIR, filename)
             
-            # 聰明載入模式：大文件採用優化策略而不是跳過
-            is_large_file = timeframe in SKIP_LARGE_FILES_IN_FAST_MODE
-            loading_mode = "優化載入" if (self.fast_startup and is_large_file) else "完整載入"
+            # 統一載入模式
+            loading_mode = "標準載入"
             
             # 更新載入狀態
             progress = (current_file - 1) / total_files * 100
@@ -172,64 +146,29 @@ class DataProcessor:
             try:
                 print(f"   正在讀取 CSV...")
                 
-                # 針對大文件使用優化載入策略
-                if self.fast_startup and is_large_file:
-                    print(f"   [優化模式] 採用分塊載入以減少記憶體使用")
-                    # 讀取最近的數據（更有用）而不是跳過整個文件
-                    df = pd.read_csv(filepath)
-                    original_count = len(df)
-                    # 使用配置中的400根K線限制，避免堆棧溢出
-                    from utils.config import DEFAULT_CANDLE_COUNT
-                    
-                    # 根據時間框架獲取對應的K線數量
-                    timeframe_key = None
-                    for tf in ['M1', 'M5', 'M15', 'H1', 'H4', 'D1']:
-                        if tf in filepath:
-                            timeframe_key = tf
-                            break
-                    
-                    if timeframe_key:
-                        candle_limit = DEFAULT_CANDLE_COUNT.get(timeframe_key, 400)
-                        if len(df) > candle_limit:
-                            df = df.tail(candle_limit)
-                            print(f"   [{timeframe_key}優化] 從 {original_count:,} 筆記錄中保留最近 {len(df):,} 筆（配置: {candle_limit}根）")
-                        else:
-                            print(f"   [{timeframe_key}] 數據量適中，載入全部 {len(df):,} 筆記錄")
-                    elif len(df) > MAX_RECORDS_LIMIT:  # 其他時間框架
-                        df = df.tail(MAX_RECORDS_LIMIT)  # 保留最近記錄
-                        print(f"   [優化] 從 {original_count:,} 筆記錄中保留最近 {len(df):,} 筆")
+                # 統一載入策略：讀取數據並應用K線限制
+                df = pd.read_csv(filepath)
+                original_count = len(df)
+                
+                # 使用配置中的K線限制
+                from utils.config import DEFAULT_CANDLE_COUNT
+                
+                # 根據時間框架獲取對應的K線數量
+                timeframe_key = None
+                for tf in ['M1', 'M5', 'M15', 'H1', 'H4', 'D1']:
+                    if tf in filepath:
+                        timeframe_key = tf
+                        break
+                
+                if timeframe_key:
+                    candle_limit = DEFAULT_CANDLE_COUNT.get(timeframe_key, 400)
+                    if len(df) > candle_limit:
+                        df = df.tail(candle_limit)
+                        print(f"   [{timeframe_key}標準] 從 {original_count:,} 筆記錄中保留最近 {len(df):,} 筆（配置: {candle_limit}根）")
                     else:
-                        print(f"   數據量適中，載入全部 {len(df):,} 筆記錄")
+                        print(f"   [{timeframe_key}] 數據量適中，載入全部 {len(df):,} 筆記錄")
                 else:
-                    # 完整載入，但仍需限制K線數量
-                    df = pd.read_csv(filepath)
-                    original_count = len(df)
-                    print(f"   CSV 讀取完成: {original_count:,} 筆原始記錄")
-                    
-                    # 確保所有時間刻度都限制在400根K線以內
-                    from utils.config import DEFAULT_CANDLE_COUNT
-                    
-                    # 根據時間框架獲取對應的K線數量
-                    timeframe_key = None
-                    for tf in ['M1', 'M5', 'M15', 'H1', 'H4', 'D1']:
-                        if tf in filepath:
-                            timeframe_key = tf
-                            break
-                    
-                    if timeframe_key:
-                        candle_limit = DEFAULT_CANDLE_COUNT.get(timeframe_key, 400)
-                        if len(df) > candle_limit:
-                            df = df.tail(candle_limit)
-                            print(f"   [{timeframe_key}限制] 從 {original_count:,} 筆記錄中保留最近 {len(df):,} 筆（配置: {candle_limit}根）")
-                        else:
-                            print(f"   [{timeframe_key}] 數據量適中，載入全部 {len(df):,} 筆記錄")
-                    else:
-                        # 未知時間框架，默認限制400根
-                        if len(df) > MEMORY_OPTIMIZATION_THRESHOLD:
-                            df = df.tail(MEMORY_OPTIMIZATION_THRESHOLD)
-                            print(f"   [默認限制] 從 {original_count:,} 筆記錄中保留最近 {len(df):,} 筆")
-                        else:
-                            print(f"   數據量適中，載入全部 {len(df):,} 筆記錄")
+                    print(f"   數據量適中，載入全部 {len(df):,} 筆記錄")
                 
                 # 動態檢查必要欄位（基於時間框架）
                 base_columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
@@ -418,7 +357,7 @@ class DataProcessor:
     
     def get_pre_market_data(self, target_date: date, timeframe: str = 'H4') -> Optional[Dict]:
         """
-        取得指定日期開盤前的資料 (優化版本，支持緩存)
+        取得指定日期開盤前的資料 (簡化版本，移除緩存機制)
         
         Args:
             target_date: 目標日期
@@ -427,39 +366,14 @@ class DataProcessor:
         Returns:
             Dict: 包含圖表資料和相關資訊
         """
-        # 生成緩存鍵（v3：修復FVG檢測條件版本）
-        from utils.config import DEFAULT_CANDLE_COUNT
-        max_candles = DEFAULT_CANDLE_COUNT.get(timeframe, 400)
-        cache_key = f"pre_market_{target_date}_{timeframe}_{CACHE_VERSION}_{max_candles}"
-        
-        # 檢查是否有緩存的響應
-        cached_response = self._get_cached_response(cache_key)
-        if cached_response is not None:
-            print(f"處理請求 (緩存): {target_date} ({timeframe})")
-            return cached_response
-        
-        print(f"處理請求: {target_date} ({timeframe})")
-        
         # 檢查日期是否在可用範圍內
-        try:
-            if target_date not in self.available_dates:
-                available_range = f"{min(self.available_dates)} ~ {max(self.available_dates)}"
-                logging.error(f"日期 {target_date} 不在可用範圍內 ({available_range})")
-                print(f"❌ 日期 {target_date} 超出資料範圍")
-                print(f"   可用日期範圍: {available_range}")
-                print(f"   target_date 類型: {type(target_date)}")
-                print(f"   available_dates 示例: {list(self.available_dates)[:5]}")
-                return None
-        except Exception as date_check_error:
-            print(f"❌ 日期檢查發生錯誤: {date_check_error}")
-            print(f"   target_date: {target_date} (類型: {type(target_date)})")
-            print(f"   available_dates 大小: {len(self.available_dates)}")
-            # 跳過日期檢查，讓後續邏輯處理
-            pass
+        if target_date not in self.available_dates:
+            available_range = f"{min(self.available_dates)} ~ {max(self.available_dates)}" if self.available_dates else "空"
+            logging.error(f"日期 {target_date} 不在可用範圍內 ({available_range})")
+            return None
         
         if timeframe not in self.data_cache:
             logging.error(f"時間刻度 {timeframe} 的資料未載入")
-            print(f"時間刻度 {timeframe} 未載入")
             return None
         
         df = self.data_cache[timeframe]
@@ -467,17 +381,16 @@ class DataProcessor:
         try:
             # 計算開盤前5分鐘的時間（台北時間）
             pre_market_time = self.time_converter.get_pre_market_time(target_date, timeframe)
-            print(f"目標時間: {pre_market_time.strftime('%Y-%m-%d %H:%M:%S')} (台北時間)")
             
             # 取得開盤前5分鐘的所有資料（不限於當日）
             pre_market_data = df[df['DateTime'] <= pre_market_time.replace(tzinfo=None)].copy()
             
             if pre_market_data.empty:
-                logging.error(f"日期 {target_date} 沒有開盤前資料")
-                print(f"日期 {target_date} 沒有開盤前資料")
-                return None
-            
-            print(f"總可用記錄: {len(pre_market_data)} 筆")
+                # Fallback: 使用最早可用資料（適用於M1等高頻數據）
+                print(f"No pre-market data for {target_date} in {timeframe}, using earliest available data")
+                from utils.config import DEFAULT_CANDLE_COUNT
+                detection_range_candles = DEFAULT_CANDLE_COUNT.get(timeframe, 400)
+                pre_market_data = df.head(detection_range_candles).copy()
             
             # FVG檢測範圍：使用配置的K線數量限制
             from utils.config import DEFAULT_CANDLE_COUNT
@@ -487,12 +400,9 @@ class DataProcessor:
             actual_count = min(detection_range_candles, len(pre_market_data))
             result_data = pre_market_data.tail(actual_count)
             
-            print(f"目標K線數: {detection_range_candles}，實際輸出: {len(result_data)} 根K線")
-            
             # 數據量驗證：確保不超過配置限制
             if len(result_data) > detection_range_candles:
                 result_data = result_data.tail(detection_range_candles)
-                print(f"⚠️ 數據量驗證：截取最新 {len(result_data)} 根K線")
             
             # 檢測 FVG
             fvgs = self.detect_fvgs(result_data, timeframe)
@@ -524,8 +434,6 @@ class DataProcessor:
             ny_close = self.time_converter.ny_tz.localize(ny_close_time)
             ny_close_taipei = ny_close.astimezone(self.time_converter.taipei_tz)
             
-            print(f"資料處理完成")
-            
             # 檢查假日狀態
             holiday_status = holiday_detector.get_trading_status(target_date)
             
@@ -553,13 +461,8 @@ class DataProcessor:
                 }
             }
             
-            # 轉換為JSON可序列化格式
-            serializable_result = self._convert_to_json_serializable(result)
-            
-            # 緩存響應（僅緩存成功的響應）
-            self._cache_response(cache_key, serializable_result.copy())
-            
-            return serializable_result
+            # 轉換為JSON可序列化格式並直接返回
+            return self._convert_to_json_serializable(result)
             
         except Exception as e:
             logging.error(f"處理日期 {target_date} 資料時發生錯誤: {str(e)}")
@@ -638,7 +541,7 @@ class DataProcessor:
             # 數據量驗證：最終確保不超過限制
             if len(market_data) > max_candles:
                 market_data = market_data.tail(max_candles)
-                print(f"⚠️ 最終數據量驗證：截取最新 {len(market_data)} 根K線")
+                print(f"[WARNING] 最終數據量驗證：截取最新 {len(market_data)} 根K線")
             
             # 檢測 FVG
             fvgs = self.detect_fvgs(market_data, timeframe)
@@ -696,15 +599,6 @@ class DataProcessor:
     
     def perform_continuity_check(self):
         """對所有時間框架執行K線連續性檢查"""
-        if self.fast_startup:
-            print("   連續性檢查: [快速模式] 跳過詳細檢查以加速啟動")
-            # 快速模式：只做基本統計，不做詳細檢查
-            for timeframe in self.data_cache.keys():
-                df = self.data_cache[timeframe]
-                candle_count = len(df)
-                print(f"   {timeframe:>3}: [SKIP] {candle_count:,} 根K線 (快速啟動)")
-            return
-            
         print("   連續性檢查:")
         
         # 根據數據量自動調整檢查策略
@@ -875,51 +769,7 @@ class DataProcessor:
                 'last_updated': datetime.now()
             }
             
-            self._processed_data_cache[timeframe] = processed_data
+            # 簡化版本：移除複雜的緩存機制
             
         except Exception as e:
-            logging.error(f"緩存預處理數據失敗 [{timeframe}]: {str(e)}")
-    
-    def _get_cached_response(self, cache_key: str) -> Optional[Dict]:
-        """獲取緩存的API響應"""
-        return self._response_cache.get(cache_key)
-    
-    def _cache_response(self, cache_key: str, response_data: Dict):
-        """緩存API響應，限制緩存大小"""
-        try:
-            # 如果緩存已滿，移除最舊的條目
-            if len(self._response_cache) >= self._cache_max_size:
-                # 移除最舊的條目（簡單FIFO策略）
-                oldest_key = next(iter(self._response_cache))
-                del self._response_cache[oldest_key]
-            
-            # 添加時間戳
-            response_data['cached_at'] = datetime.now().isoformat()
-            self._response_cache[cache_key] = response_data
-            
-        except Exception as e:
-            logging.error(f"緩存響應失敗 [{cache_key}]: {str(e)}")
-    
-    def _clear_old_cache(self, max_age_minutes: int = 30):
-        """清除過期的緩存條目"""
-        try:
-            current_time = datetime.now()
-            expired_keys = []
-            
-            for key, data in self._response_cache.items():
-                if 'cached_at' in data:
-                    cached_time = datetime.fromisoformat(data['cached_at'])
-                    age_minutes = (current_time - cached_time).total_seconds() / 60
-                    
-                    if age_minutes > max_age_minutes:
-                        expired_keys.append(key)
-            
-            # 移除過期條目
-            for key in expired_keys:
-                del self._response_cache[key]
-            
-            if expired_keys:
-                print(f"清除 {len(expired_keys)} 個過期緩存條目")
-                
-        except Exception as e:
-            logging.error(f"清除過期緩存失敗: {str(e)}")
+            logging.error(f"數據處理失敗 [{timeframe}]: {str(e)}")

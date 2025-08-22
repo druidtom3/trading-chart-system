@@ -137,14 +137,19 @@ def get_random_data():
 @app.route('/api/data/<date>/<timeframe>')
 def get_specific_data(date, timeframe):
     """取得指定日期和時間刻度的資料"""
+    # Debug output for API calls
+    print(f"API Request: {date}/{timeframe}")
+    
     try:
         from datetime import datetime
         import json
         import numpy as np
         
         target_date = datetime.strptime(date, '%Y-%m-%d').date()
-        
         data = data_processor.get_pre_market_data(target_date, timeframe)
+        
+        if data is None:
+            print(f"No data available for {date}/{timeframe}")
         
         if data is None:
             return jsonify({'error': '無法取得指定資料'}), 404

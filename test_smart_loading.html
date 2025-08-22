@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能載入模式測試</title>
+    <style>
+        body { font-family: monospace; margin: 20px; background: #1a1a1a; color: #fff; }
+        .test-container { max-width: 800px; margin: 0 auto; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #333; border-radius: 8px; }
+        .test-section h3 { color: #4CAF50; margin-top: 0; }
+        .mode-info { background: #333; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .mode-switcher { margin: 15px 0; }
+        .mode-switcher button { 
+            margin: 0 5px; padding: 8px 16px; background: #333; color: #fff; 
+            border: 1px solid #555; border-radius: 4px; cursor: pointer; 
+        }
+        .mode-switcher button.active { background: #4CAF50; }
+        .renderer-list { background: #2a2a2a; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .log { background: #000; padding: 10px; border-radius: 4px; height: 200px; overflow-y: auto; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 智能載入模式測試</h1>
+        
+        <div class="test-section">
+            <h3>當前模式檢測</h3>
+            <div class="mode-info">
+                當前模式: <span id="current-mode">檢測中...</span>
+            </div>
+            <div class="mode-info">
+                URL參數: <span id="url-params">檢測中...</span>
+            </div>
+            <div class="mode-info">
+                本地存儲: <span id="local-storage">檢測中...</span>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h3>模式切換測試</h3>
+            <div class="mode-switcher">
+                <button onclick="testSwitchMode('production')" id="btn-production">生產模式</button>
+                <button onclick="testSwitchMode('debug')" id="btn-debug">調試模式</button>
+                <button onclick="testSwitchMode('development')" id="btn-development">開發模式</button>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h3>渲染器選擇測試</h3>
+            <div class="renderer-list" id="renderer-list">載入中...</div>
+        </div>
+        
+        <div class="test-section">
+            <h3>測試日誌</h3>
+            <div class="log" id="test-log"></div>
+        </div>
+    </div>
+
+    <script>
+        // 複製V2中的檢測邏輯
+        function detectLoadingMode() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlMode = urlParams.get('mode');
+            
+            if (urlMode === 'debug') return 'debug';
+            if (urlMode === 'dev' || urlMode === 'development') return 'development';
+            if (urlMode === 'production') return 'production';
+            
+            const savedMode = localStorage.getItem('smartLoadingMode');
+            if (savedMode && ['production', 'debug', 'development'].includes(savedMode)) {
+                return savedMode;
+            }
+            
+            return 'production';
+        }
+        
+        // 複製V2中的渲染器選擇邏輯
+        function getFVGRenderersForMode(mode) {
+            const rendererConfigs = {
+                production: {
+                    description: '生產模式 - 最佳性能',
+                    renderers: [
+                        'fvg-renderer-optimized.js'
+                    ]
+                },
+                debug: {
+                    description: '調試模式 - 包含調試工具',
+                    renderers: [
+                        'fvg-renderer-optimized.js',
+                        'fvg-renderer-ultra-minimal.js',
+                        'fvg-renderer-safe.js'
+                    ]
+                },
+                development: {
+                    description: '開發模式 - 完整功能',
+                    renderers: [
+                        'fvg-renderer-optimized.js',
+                        'fvg-renderer-multiline.js',
+                        'fvg-renderer-ultra-minimal.js',
+                        'fvg-renderer-safe.js',
+                        'fvg-renderer-fixed.js',
+                        'fvg-renderer-minimal.js'
+                    ]
+                }
+            };
+            
+            return rendererConfigs[mode] || rendererConfigs.production;
+        }
+        
+        function log(message) {
+            const logElement = document.getElementById('test-log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}<br>`;
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(message);
+        }
+        
+        function updateUI() {
+            const mode = detectLoadingMode();
+            const urlParams = new URLSearchParams(window.location.search);
+            const savedMode = localStorage.getItem('smartLoadingMode');
+            
+            // 更新顯示
+            document.getElementById('current-mode').textContent = mode;
+            document.getElementById('url-params').textContent = urlParams.get('mode') || '無';
+            document.getElementById('local-storage').textContent = savedMode || '無';
+            
+            // 更新按鈕狀態
+            document.querySelectorAll('.mode-switcher button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById(`btn-${mode}`).classList.add('active');
+            
+            // 更新渲染器列表
+            const rendererConfig = getFVGRenderersForMode(mode);
+            document.getElementById('renderer-list').innerHTML = `
+                <strong>${rendererConfig.description}</strong><br>
+                渲染器數量: ${rendererConfig.renderers.length}<br>
+                <div style="margin-top: 8px;">
+                    ${rendererConfig.renderers.map(r => `• ${r}`).join('<br>')}
+                </div>
+            `;
+            
+            log(`🎯 模式更新: ${mode} (${rendererConfig.renderers.length} 個渲染器)`);
+        }
+        
+        function testSwitchMode(mode) {
+            log(`🔄 測試切換到: ${mode}`);
+            
+            localStorage.setItem('smartLoadingMode', mode);
+            const url = new URL(window.location);
+            url.searchParams.set('mode', mode);
+            
+            log(`💾 保存到localStorage: ${mode}`);
+            log(`🔗 更新URL: ${url.toString()}`);
+            
+            // 不重新載入頁面，只更新UI來測試
+            setTimeout(updateUI, 100);
+        }
+        
+        // 實際切換模式 (重新載入頁面)
+        function switchMode(mode) {
+            localStorage.setItem('smartLoadingMode', mode);
+            const url = new URL(window.location);
+            url.searchParams.set('mode', mode);
+            window.location = url.toString();
+        }
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            log('🚀 智能載入模式測試開始');
+            updateUI();
+        });
+        
+        // 添加實際切換按鈕
+        setTimeout(() => {
+            const container = document.querySelector('.test-section:nth-child(3)');
+            container.innerHTML += `
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #444;">
+                    <strong>實際切換 (重新載入頁面):</strong><br>
+                    <button onclick="switchMode('production')" style="margin: 5px; padding: 8px 16px; background: #444; color: #fff; border: 1px solid #666; border-radius: 4px; cursor: pointer;">切換到生產模式</button>
+                    <button onclick="switchMode('debug')" style="margin: 5px; padding: 8px 16px; background: #444; color: #fff; border: 1px solid #666; border-radius: 4px; cursor: pointer;">切換到調試模式</button>
+                    <button onclick="switchMode('development')" style="margin: 5px; padding: 8px 16px; background: #444; color: #fff; border: 1px solid #666; border-radius: 4px; cursor: pointer;">切換到開發模式</button>
+                </div>
+            `;
+        }, 500);
+    </script>
+</body>
+</html>

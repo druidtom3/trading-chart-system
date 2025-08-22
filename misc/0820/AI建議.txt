@@ -1,0 +1,379 @@
+以下是問題分析和解決方案：
+🔴 主要問題診斷
+1. K線數據包含 null 值問題
+錯誤發生在 updateData 後，可能是數據中有 null/undefined 值。
+2. FVG 渲染器的線條數據問題
+FVG渲染器創建了多條線，但某些線條的數據點可能是 null。
+3. 時間戳格式問題
+可能 startTime 或 endTime 是 null 或格式不正確。
+📝 需要修改的文件
+修改 1: chart-manager.js - 加入數據驗證
+javascript// 檔名：chart-manager-fixed.js
+// 在 updateData 方法中加入數據驗證
+
+updateData(data) {
+    if (!data || !Array.isArray(data) || data.length === 0) {
+        console.warn('updateData: 無效或空數據');
+        return [];
+    }
+    
+    // 過濾和驗證數據
+    const validData = data.filter(item => {
+        // 檢查必要欄位是否存在且不為 null
+        return item && 
+               item.time !== null && item.time !== undefined &&
+               item.open !== null && item.open !== undefined &&
+               item.high !== null && item.high !== undefined &&
+               item.low !== null && item.low !== undefined &&
+               item.close !== null && item.close !== undefined &&
+               !isNaN(item.open) && !isNaN(item.high) && 
+               !isNaN(item.low) && !isNaN(item.close);
+    });
+    
+    if (validData.length === 0) {
+        console.error('updateData: 沒有有效數據');
+        return [];
+    }
+    
+    const candleData = validData.map(item => ({
+        time: item.time,
+        open: parseFloat(item.open),
+        high: parseFloat(item.high),
+        low: parseFloat(item.low),
+        close: parseFloat(item.close),
+    }));
+    
+    console.log('更新K線數據:', candleData.length, '根');
+    console.log('第一根K線:', candleData[0]);
+    console.log('最後一根K線:', candleData[candleData.length - 1]);
+    
+    try {
+        this.candlestickSeries.setData(candleData);
+    } catch (error) {
+        console.error('設置K線數據失敗:', error);
+        // 嘗試重新創建系列
+        this.recreateCandlestickSeries();
+        this.candlestickSeries.setData(candleData);
+    }
+    
+    return candleData;
+}
+
+// 新增方法：重新創建K線系列
+recreateCandlestickSeries() {
+    console.log('重新創建K線系列...');
+    if (this.candlestickSeries) {
+        try {
+            this.chart.removeSeries(this.candlestickSeries);
+        } catch (e) {
+            console.warn('移除舊系列失敗:', e);
+        }
+    }
+    this.candlestickSeries = this.createCandlestickSeries();
+}
+修改 2: fvg-renderer-multiline.js - 修復線條數據
+javascript// 檔名：fvg-renderer-multiline-fixed.js
+// 修改 renderSingleFVG 方法中的線條數據創建
+
+renderSingleFVG(fvg, index, isCleared) {
+    try {
+        // 驗證 FVG 數據
+        if (!fvg || !fvg.startTime || !fvg.endTime) {
+            console.error(`❌ FVG ${index + 1} 缺少時間數據:`, fvg);
+            return;
+        }
+        
+        // 確保價格是數字且有效
+        const topPrice = this.validatePrice(fvg.topPrice || fvg.endPrice || fvg.startPrice);
+        const bottomPrice = this.validatePrice(fvg.bottomPrice || fvg.startPrice || fvg.endPrice);
+        
+        if (topPrice === null || bottomPrice === null) {
+            console.error(`❌ FVG ${index + 1} 價格無效:`, fvg);
+            return;
+        }
+        
+        // 確保時間戳有效
+        const startTime = this.validateTime(fvg.startTime);
+        const endTime = this.validateTime(fvg.endTime);
+        
+        if (startTime === null || endTime === null) {
+            console.error(`❌ FVG ${index + 1} 時間無效:`, fvg);
+            return;
+        }
+        
+        console.log(`🔹 渲染FVG ${index + 1}: ${fvg.type} (${topPrice.toFixed(2)} - ${bottomPrice.toFixed(2)})`);
+        
+        const fvgGapSize = Math.abs(topPrice - bottomPrice);
+        const numberOfFillLines = this.calculateLineCount(fvgGapSize);
+        
+        const fillColor = this.getFillColor(fvg.type, isCleared);
+        const borderColor = this.getBorderColor(fvg.type, isCleared);
+        
+        // 創建填充線條 - 確保所有值都有效
+        for (let i = 1; i < numberOfFillLines; i++) {
+            const ratio = i / numberOfFillLines;
+            const linePrice = bottomPrice + (topPrice - bottomPrice) * ratio;
+            
+            // 驗證線價格
+            if (isNaN(linePrice) || linePrice === null) {
+                console.warn(`跳過無效線條價格: ${linePrice}`);
+                continue;
+            }
+            
+            const fillLineSeries = this.createLineSeries({
+                color: fillColor,
+                lineWidth: 1,
+                lineStyle: 0, // 使用數字而非常量
+                priceScaleId: 'right',
+                lastValueVisible: false,
+                priceLineVisible: false,
+            });
+            
+            const lineData = [
+                { time: startTime, value: linePrice },
+                { time: endTime, value: linePrice }
+            ];
+            
+            try {
+                fillLineSeries.setData(lineData);
+                this.fvgPrimitives.push(fillLineSeries);
+            } catch (error) {
+                console.error(`創建線條失敗 (price: ${linePrice}):`, error);
+            }
+        }
+        
+        // 創建邊界線
+        this.createSafeBoundaryLine(topPrice, startTime, endTime, borderColor, isCleared);
+        this.createSafeBoundaryLine(bottomPrice, startTime, endTime, borderColor, isCleared);
+        
+    } catch (error) {
+        console.error(`❌ FVG渲染失敗 [${index}]:`, error);
+    }
+}
+
+// 新增輔助方法：驗證價格
+validatePrice(price) {
+    if (price === null || price === undefined || isNaN(price)) {
+        return null;
+    }
+    return parseFloat(price);
+}
+
+// 新增輔助方法：驗證時間
+validateTime(time) {
+    if (time === null || time === undefined) {
+        return null;
+    }
+    // 如果是數字，直接返回
+    if (typeof time === 'number' && !isNaN(time)) {
+        return time;
+    }
+    // 如果是字符串，嘗試解析
+    if (typeof time === 'string') {
+        const parsed = parseFloat(time);
+        if (!isNaN(parsed)) {
+            return parsed;
+        }
+    }
+    return null;
+}
+
+// 新增安全的邊界線創建方法
+createSafeBoundaryLine(price, startTime, endTime, color, isCleared) {
+    if (price === null || startTime === null || endTime === null) {
+        console.warn('跳過無效邊界線');
+        return null;
+    }
+    
+    try {
+        const lineSeries = this.createLineSeries({
+            color: color,
+            lineWidth: 0.5,
+            lineStyle: isCleared ? 2 : 0, // 使用數字代替常量
+            priceScaleId: 'right',
+            lastValueVisible: false,
+            priceLineVisible: false,
+        });
+        
+        const lineData = [
+            { time: startTime, value: price },
+            { time: endTime, value: price }
+        ];
+        
+        lineSeries.setData(lineData);
+        this.fvgPrimitives.push(lineSeries);
+        return lineSeries;
+    } catch (error) {
+        console.error(`創建邊界線失敗 (price: ${price}):`, error);
+        return null;
+    }
+}
+修改 3: script-v2.js - 加入數據檢查
+javascript// 檔名：script-v2-fixed.js
+// 修改 loadInitialData 函數
+
+async function loadInitialData() {
+    showLoading();
+    
+    try {
+        const data = await dataManager.loadRandomData(currentTimeframe);
+        
+        if (!data) {
+            console.error('沒有收到數據');
+            hideLoading();
+            return;
+        }
+        
+        // 驗證數據結構
+        if (!data.data || !Array.isArray(data.data)) {
+            console.error('數據格式錯誤:', data);
+            alert('數據格式錯誤');
+            hideLoading();
+            return;
+        }
+        
+        // 檢查數據中是否有 null 值
+        const hasNullValues = data.data.some(item => 
+            !item || 
+            item.time === null || item.time === undefined ||
+            item.open === null || item.open === undefined ||
+            item.high === null || item.high === undefined ||
+            item.low === null || item.low === undefined ||
+            item.close === null || item.close === undefined
+        );
+        
+        if (hasNullValues) {
+            console.warn('數據中包含 null 值，進行清理...');
+            // 過濾掉包含 null 的數據點
+            data.data = data.data.filter(item => 
+                item && 
+                item.time !== null && item.time !== undefined &&
+                item.open !== null && item.open !== undefined &&
+                item.high !== null && item.high !== undefined &&
+                item.low !== null && item.low !== undefined &&
+                item.close !== null && item.close !== undefined
+            );
+        }
+        
+        if (data.data.length === 0) {
+            console.error('沒有有效的K線數據');
+            alert('沒有有效的K線數據');
+            hideLoading();
+            return;
+        }
+        
+        console.log('載入數據成功:', data.data.length, '根K線');
+        currentData = data;
+        updateUI(data);
+        hideLoading();
+        
+    } catch (error) {
+        console.error('載入初始資料失敗:', error);
+        alert('載入資料失敗，請重新整理頁面');
+        hideLoading();
+    }
+}
+修改 4: 使用Canvas原生繪製FVG矩形（更好的方案）
+如果要顯示真正的半透明矩形而不是多條線，建議創建一個新的FVG渲染器：
+javascript// 檔名：fvg-renderer-rect.js
+// 使用自定義插件繪製真正的矩形
+
+class FVGRendererRect {
+    constructor(chart, candlestickSeries) {
+        this.chart = chart;
+        this.candlestickSeries = candlestickSeries;
+        this.fvgData = [];
+        this.plugin = null;
+        this.initPlugin();
+    }
+    
+    initPlugin() {
+        const self = this;
+        
+        this.plugin = {
+            renderer: () => ({
+                draw: (target) => {
+                    const ctx = target.context;
+                    const bitmapSize = target.bitmapSize;
+                    
+                    // 遍歷所有FVG並繪製
+                    self.fvgData.forEach(fvg => {
+                        if (!fvg.startTime || !fvg.endTime || !fvg.topPrice || !fvg.bottomPrice) {
+                            return;
+                        }
+                        
+                        try {
+                            // 轉換時間和價格到畫布坐標
+                            const x1 = self.chart.timeScale().timeToCoordinate(fvg.startTime);
+                            const x2 = self.chart.timeScale().timeToCoordinate(fvg.endTime);
+                            const y1 = self.candlestickSeries.priceToCoordinate(fvg.topPrice);
+                            const y2 = self.candlestickSeries.priceToCoordinate(fvg.bottomPrice);
+                            
+                            if (x1 === null || x2 === null || y1 === null || y2 === null) {
+                                return;
+                            }
+                            
+                            // 設置樣式
+                            ctx.save();
+                            
+                            // 根據類型設置顏色
+                            if (fvg.type === 'bullish') {
+                                ctx.fillStyle = fvg.isCleared ? 'rgba(128, 128, 128, 0.1)' : 'rgba(0, 255, 140, 0.15)';
+                                ctx.strokeStyle = fvg.isCleared ? '#888888' : '#00d68f';
+                            } else {
+                                ctx.fillStyle = fvg.isCleared ? 'rgba(128, 128, 128, 0.1)' : 'rgba(255, 61, 113, 0.15)';
+                                ctx.strokeStyle = fvg.isCleared ? '#888888' : '#ff3d71';
+                            }
+                            
+                            ctx.lineWidth = 1;
+                            
+                            // 繪製矩形
+                            const width = Math.abs(x2 - x1);
+                            const height = Math.abs(y2 - y1);
+                            const x = Math.min(x1, x2);
+                            const y = Math.min(y1, y2);
+                            
+                            // 填充
+                            ctx.fillRect(x, y, width, height);
+                            
+                            // 邊框
+                            ctx.strokeRect(x, y, width, height);
+                            
+                            ctx.restore();
+                            
+                        } catch (error) {
+                            console.error('繪製FVG失敗:', error);
+                        }
+                    });
+                }
+            })
+        };
+        
+        // 將插件附加到圖表
+        this.chart.applyOptions({
+            plugins: [this.plugin]
+        });
+    }
+    
+    render(fvgs) {
+        // 轉換FVG數據格式
+        this.fvgData = fvgs.filter(fvg => fvg && fvg.startTime && fvg.endTime).map(fvg => ({
+            startTime: fvg.startTime,
+            endTime: fvg.endTime,
+            topPrice: parseFloat(fvg.topPrice || fvg.endPrice || fvg.startPrice),
+            bottomPrice: parseFloat(fvg.bottomPrice || fvg.startPrice || fvg.endPrice),
+            type: fvg.type,
+            isCleared: fvg.status === 'cleared'
+        }));
+        
+        // 請求重繪
+        this.chart.applyOptions({});
+    }
+}
+🚀 立即執行的步驟
+
+先修復數據驗證問題（修改1和3）
+修復FVG渲染器的null值問題（修改2）
+考慮改用Canvas原生繪製（修改4）以獲得真正的半透明矩形
+
+最關鍵的是要確保所有傳入圖表的數據都不包含 null 值！

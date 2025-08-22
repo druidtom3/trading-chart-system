@@ -1,0 +1,203 @@
+看了你的程式碼，我發現你已經改善了一些主要問題，特別是：
+✅ 已改善的部分：
+
+K線數量限制已統一使用 DEFAULT_CANDLE_COUNT 配置
+使用了 FVGDetectorSimple 作為主要檢測器
+時間戳處理已標準化（有專門的 time_utils.py 和 timestamp-utils.js）
+
+但仍有一些技術債需要處理：
+🔴 主要問題和具體建議
+1. FVG渲染器版本過多問題
+問題證據：
+
+index-v2.html 第882-887行載入了6個不同的FVG渲染器
+chart-manager.js 第306-337行有複雜的渲染器選擇邏輯
+
+具體修改建議：
+javascript// chart-manager.js - 簡化為只使用一個渲染器
+initializeFVGRenderer() {
+    try {
+        console.log('🎨 初始化 FVG 渲染器');
+        
+        // 只使用 Optimized 版本，移除所有其他選擇邏輯
+        if (window.FVGRendererOptimized) {
+            this.fvgRenderer = new FVGRendererOptimized(this.chart, this.candlestickSeries);
+            console.log('✅ FVG優化渲染器初始化成功');
+        } else {
+            throw new Error('FVG渲染器未載入');
+        }
+        
+    } catch (error) {
+        console.error('❌ FVG渲染器初始化失敗:', error.message);
+        this.fvgRenderer = null;
+    }
+}
+index-v2.html 修改：
+javascript// 只載入必要的渲染器
+const fvgRenderers = [
+    'fvg-renderer-optimized.js',  // 只保留這個
+    // 移除其他5個渲染器的載入
+];
+2. 後端緩存系統過於複雜
+問題證據：
+
+data_processor.py 第37-38行有多層緩存
+第439行的緩存key包含版本號
+
+具體修改建議：
+python# data_processor.py - 移除不必要的緩存層
+class DataProcessor:
+    def __init__(self):
+        self.data_cache = {}  # 只保留這個基本的數據緩存
+        # 移除以下緩存：
+        # self._response_cache = {}  # 刪除
+        # self._processed_data_cache = {}  # 刪除
+        
+    def get_pre_market_data(self, target_date: date, timeframe: str = 'H4'):
+        # 移除緩存邏輯，直接處理
+        # cache_key = ...  # 刪除
+        # cached_response = self._get_cached_response(cache_key)  # 刪除
+        
+        # 直接處理數據
+        data = self._process_data(target_date, timeframe)
+        return data
+3. 連續性檢查器版本選擇
+問題證據：
+
+存在兩個版本的檢查器
+data_processor.py 第49-66行有複雜的選擇邏輯
+
+具體修改建議：
+python# data_processor.py - 統一使用V2版本
+class DataProcessor:
+    def __init__(self):
+        # 直接使用V2，移除條件判斷
+        from backend.candle_continuity_checker_v2 import CandleContinuityCheckerV2
+        self.continuity_checker = CandleContinuityCheckerV2(
+            optimization_mode='smart',  # 固定使用smart模式
+            show_progress=False  # 後端不需要進度條
+        )
+        # 移除 self.fast_startup 相關邏輯
+4. Console輸出過多
+具體修改建議：
+創建一個統一的日誌管理器：
+javascript// utils/logger.js - 新建檔案
+class Logger {
+    constructor() {
+        this.debugMode = false;  // 生產環境設為false
+    }
+    
+    log(...args) {
+        if (this.debugMode) console.log(...args);
+    }
+    
+    error(...args) {
+        console.error(...args);  // 錯誤總是輸出
+    }
+    
+    warn(...args) {
+        if (this.debugMode) console.warn(...args);
+    }
+}
+
+window.logger = new Logger();
+然後全局替換：
+
+console.log → logger.log
+console.warn → logger.warn
+
+5. 載入系統過於複雜
+問題證據：
+
+index-v2.html 有多個進度條系統
+載入邏輯分散在多處
+
+具體修改建議：
+簡化為單一載入管理器：
+javascript// loading-manager.js - 新建檔案
+class LoadingManager {
+    constructor() {
+        this.modules = [
+            'config.js',
+            'chart-manager.js',
+            'data-manager.js',
+            'fvg-renderer-optimized.js',  // 只載入這一個
+            'script-v2.js'
+        ];
+    }
+    
+    async loadAll() {
+        const total = this.modules.length;
+        for (let i = 0; i < total; i++) {
+            await this.loadScript(this.modules[i]);
+            this.updateProgress((i + 1) / total * 100);
+        }
+    }
+    
+    updateProgress(percent) {
+        // 統一的進度更新
+        document.getElementById('progress-fill').style.width = `${percent}%`;
+    }
+}
+6. 數據驗證不一致
+新增建議：
+創建統一的數據驗證器：
+python# utils/data_validator.py - 新建檔案
+class DataValidator:
+    @staticmethod
+    def validate_candle_limit(data_length: int, timeframe: str, config_limit: int) -> int:
+        """統一的K線數量驗證"""
+        if data_length > config_limit:
+            print(f"[{timeframe}] 數據量 {data_length} 超過限制 {config_limit}")
+            return config_limit
+        return data_length
+    
+    @staticmethod
+    def validate_fvg_data(fvgs: list, max_count: int = 50) -> list:
+        """統一的FVG數量驗證"""
+        if len(fvgs) > max_count:
+            # 按重要性排序，只保留前N個
+            return sorted(fvgs, key=lambda x: x.get('gap_size', 0), reverse=True)[:max_count]
+        return fvgs
+📋 優先修復順序
+
+立即修復（影響最大）：
+
+移除多餘的FVG渲染器（減少70%載入時間）
+簡化後端緩存系統（減少記憶體使用）
+
+
+本週修復：
+
+統一使用V2連續性檢查器
+實施日誌管理器
+
+
+後續優化：
+
+簡化載入系統
+統一數據驗證
+
+
+
+🔍 需要額外檢查的檔案
+請提供以下檔案以便更完整的分析：
+
+utils/config.py - 查看完整的配置設定
+fvg-renderer-multiline.js - 了解為何需要這麼多渲染器版本
+utils/loading_config.py - 了解載入配置
+playback-manager.js - 檢查播放功能的實現
+
+⚡ 快速驗證改善效果的方法
+javascript// 在瀏覽器Console執行
+// 檢查實際載入的模組數量
+console.log('載入的腳本數:', document.querySelectorAll('script').length);
+
+// 檢查FVG渲染器實例
+console.log('FVG渲染器類型:', window.app?.chartManager?.fvgRenderer?.constructor.name);
+
+// 檢查記憶體使用
+if (performance.memory) {
+    console.log('記憶體使用:', Math.round(performance.memory.usedJSHeapSize / 1048576) + ' MB');
+}
+這些改善應該能讓系統更簡潔、更快速、更容易維護。建議從移除多餘的FVG渲染器開始，這是最容易實施且效果最明顯的改善。

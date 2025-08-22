@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交易圖表系統 - 簡化載入版本</title>
+    <link rel="stylesheet" href="src/frontend/style-v2.css">
+</head>
+<body>
+    <!-- 載入進度條 -->
+    <div id="loading-screen">
+        <div class="loading-container">
+            <h2>交易圖表系統載入中...</h2>
+            <div class="progress-bar">
+                <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <div id="status-text" class="status-text">初始化系統...</div>
+            <div id="detail-text" class="detail-text">準備載入核心模組</div>
+            
+            <!-- 載入模式選擇 (開發用) -->
+            <div class="debug-controls" style="margin-top: 20px; display: none;">
+                <button onclick="setLoadingMode('production')">生產模式</button>
+                <button onclick="setLoadingMode('debug')">調試模式</button>
+                <button onclick="setLoadingMode('full')">完整模式</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主要內容區域 -->
+    <div id="main-content" style="display: none;">
+        <!-- 這裡是原有的圖表內容 -->
+        <div id="chart-container"></div>
+        <!-- 其他UI元素 -->
+    </div>
+
+    <!-- 統一載入腳本 -->
+    <script>
+        // 簡化的載入控制器
+        class SimpleLoadingController {
+            constructor() {
+                this.loadingManager = null;
+                this.debugMode = new URLSearchParams(window.location.search).has('debug');
+                
+                // 如果是調試模式，顯示模式選擇按鈕
+                if (this.debugMode) {
+                    document.querySelector('.debug-controls').style.display = 'block';
+                }
+            }
+            
+            async start() {
+                try {
+                    console.log('🚀 簡化載入系統啟動');
+                    
+                    // 1. 首先載入載入管理器
+                    await this.loadScript('src/frontend/loading-manager-v2.js');
+                    
+                    // 2. 創建管理器實例
+                    this.loadingManager = new LoadingManagerV2();
+                    window.loadingManager = this.loadingManager; // 全域引用
+                    
+                    // 3. 執行載入
+                    const result = await this.loadingManager.loadAll();
+                    
+                    if (result.success) {
+                        console.log('✅ 所有模組載入成功');
+                        this.showMainContent();
+                    } else {
+                        console.error('❌ 載入失敗:', result.error);
+                        this.showError(result.error);
+                    }
+                    
+                } catch (error) {
+                    console.error('💥 載入控制器失敗:', error);
+                    this.showError(error.message);
+                }
+            }
+            
+            loadScript(src) {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = src;
+                    script.onload = resolve;
+                    script.onerror = () => reject(new Error(`載入失敗: ${src}`));
+                    document.head.appendChild(script);
+                });
+            }
+            
+            showMainContent() {
+                document.getElementById('loading-screen').style.display = 'none';
+                document.getElementById('main-content').style.display = 'block';
+                
+                // 觸發系統初始化事件
+                window.dispatchEvent(new CustomEvent('systemReady'));
+            }
+            
+            showError(message) {
+                const statusElement = document.getElementById('status-text');
+                const detailElement = document.getElementById('detail-text');
+                
+                if (statusElement) statusElement.textContent = '載入失敗';
+                if (detailElement) detailElement.textContent = message;
+                
+                // 顯示重試按鈕
+                const container = document.querySelector('.loading-container');
+                const retryButton = document.createElement('button');
+                retryButton.textContent = '重試';
+                retryButton.onclick = () => window.location.reload();
+                retryButton.style.marginTop = '20px';
+                container.appendChild(retryButton);
+            }
+        }
+        
+        // 載入模式設置函數 (調試用)
+        function setLoadingMode(mode) {
+            localStorage.setItem('loadingMode', mode);
+            window.location.reload();
+        }
+        
+        // 啟動載入控制器
+        const controller = new SimpleLoadingController();
+        
+        // DOM載入完成後立即開始
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => controller.start());
+        } else {
+            controller.start();
+        }
+        
+        // 監聽系統就緒事件
+        window.addEventListener('systemReady', () => {
+            console.log('🎉 系統完全就緒，可以開始使用');
+            
+            // 這裡可以觸發原有的系統初始化邏輯
+            if (window.initializeSystem) {
+                window.initializeSystem();
+            }
+        });
+    </script>
+</body>
+</html>

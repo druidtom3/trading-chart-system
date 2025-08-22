@@ -14,8 +14,62 @@
     <link rel="prefetch" href="event-manager.js" as="script">
     
     <link rel="stylesheet" href="style-v2.css">
+    
+    <!-- 智能載入模式切換器樣式 -->
+    <style>
+        .mode-switcher {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            z-index: 10000;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .mode-switcher button {
+            margin: 0 2px;
+            padding: 4px 8px;
+            font-size: 10px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #333;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .mode-switcher button:hover {
+            background: #555;
+        }
+        
+        .mode-switcher button.active {
+            background: #4CAF50;
+            border-color: #4CAF50;
+        }
+        
+        .mode-info {
+            margin-top: 4px;
+            font-size: 10px;
+            color: #aaa;
+        }
+    </style>
 </head>
 <body>
+    <!-- 智能載入模式切換器 -->
+    <div class="mode-switcher">
+        <div>載入模式:</div>
+        <button onclick="switchLoadingMode('production')" id="mode-production">生產</button>
+        <button onclick="switchLoadingMode('debug')" id="mode-debug">調試</button>
+        <button onclick="switchLoadingMode('development')" id="mode-development">開發</button>
+        <div class="mode-info">
+            <span>當前: </span><span id="current-mode">auto</span>
+        </div>
+    </div>
+
     <!-- 載入進度覆蓋層 -->
     <div id="loading-overlay" class="loading-overlay">
         <div class="loading-container">
@@ -606,6 +660,7 @@
                 
                 // 階段1：關鍵依賴模組（必須按順序）
                 const criticalModules = [
+                    'logger.js',              // Logger系統 - 最最優先載入
                     'timestamp-utils.js',     // 時間戳工具 - 最優先載入
                     'data-validator.js',      // 數據驗證器 - 第二優先
                     'error-monitor.js',       // 錯誤監控器 - 第三優先
@@ -625,26 +680,95 @@
                     'event-manager.js'
                 ];
                 
-                // 階段4：FVG渲染器（階段性測試）
-                const fvgRenderers = [
-                    'fvg-renderer-ultra-minimal.js', // 超級簡化渲染器（階段性測試）
-                    'fvg-renderer-fixed.js',         // 修復渲染器（時間範圍修復）
-                    'fvg-renderer-minimal.js',       // 極簡渲染器（無圖形測試）
-                    'fvg-renderer-safe.js',          // 安全渲染器（調試無限迴圈）
-                    'fvg-renderer-optimized.js',     // 高性能優化渲染器（PriceLine版本）
-                    'fvg-renderer-multiline.js'      // 多線條渲染器（備用）
-                ];
+                // 階段4：FVG渲染器（智能載入模式）
+                
+                // 檢測載入模式
+                function detectLoadingMode() {
+                    // 優先檢查URL參數
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const urlMode = urlParams.get('mode');
+                    
+                    if (urlMode === 'debug') return 'debug';
+                    if (urlMode === 'dev' || urlMode === 'development') return 'development';
+                    if (urlMode === 'production') return 'production';
+                    
+                    // 檢查本地存儲
+                    const savedMode = localStorage.getItem('smartLoadingMode');
+                    if (savedMode && ['production', 'debug', 'development'].includes(savedMode)) {
+                        return savedMode;
+                    }
+                    
+                    return 'production';  // 默認生產模式
+                }
+                
+                // 根據模式選擇FVG渲染器
+                function getFVGRenderersForMode(mode) {
+                    const rendererConfigs = {
+                        production: {
+                            description: '生產模式 - 最佳性能',
+                            renderers: [
+                                'fvg-renderer-optimized.js'  // 只載入優化版本
+                            ]
+                        },
+                        debug: {
+                            description: '調試模式 - 包含調試工具',
+                            renderers: [
+                                'fvg-renderer-optimized.js',      // 主要渲染器
+                                'fvg-renderer-ultra-minimal.js',  // 極簡調試版本
+                                'fvg-renderer-safe.js'            // 安全調試版本
+                            ]
+                        },
+                        development: {
+                            description: '開發模式 - 完整功能',
+                            renderers: [
+                                'fvg-renderer-optimized.js',     // 高性能優化渲染器
+                                'fvg-renderer-multiline.js',     // 多線條渲染器（備用）
+                                'fvg-renderer-ultra-minimal.js', // 超級簡化渲染器
+                                'fvg-renderer-safe.js',          // 安全渲染器
+                                'fvg-renderer-fixed.js',         // 修復渲染器
+                                'fvg-renderer-minimal.js'        // 極簡渲染器
+                            ]
+                        }
+                    };
+                    
+                    return rendererConfigs[mode] || rendererConfigs.production;
+                }
+                
+                const loadingMode = detectLoadingMode();
+                const rendererConfig = getFVGRenderersForMode(loadingMode);
+                const fvgRenderers = rendererConfig.renderers;
+                
+                // 智能日誌輸出 (檢查Logger是否可用)
+                const smartLog = {
+                    info: (msg, data) => {
+                        if (window.log) {
+                            window.log.loading(msg, data);
+                        } else {
+                            console.log(`📦 ${msg}`, data || '');
+                        }
+                    },
+                    system: (msg, data) => {
+                        if (window.log) {
+                            window.log.system(msg, data);
+                        } else {
+                            console.log(`🔧 ${msg}`, data || '');
+                        }
+                    }
+                };
+                
+                smartLog.system(`載入模式: ${loadingMode} (${rendererConfig.description})`);
+                smartLog.info(`FVG渲染器: ${fvgRenderers.length} 個模組`, fvgRenderers);
                 
                 let currentStage = 1;
                 const totalStages = 4;
                 
                 // 階段1：載入關鍵依賴（序列載入）
-                console.log('階段1: 載入關鍵依賴模組...');
+                smartLog.info('階段1: 載入關鍵依賴模組...');
                 updateProgress(55, '載入關鍵依賴...', '載入 CandleAggregator 和 Config');
                 
                 loadModulesSequentially(criticalModules)
                     .then(() => {
-                        console.log('階段1完成，開始階段2: 並行載入核心模組...');
+                        smartLog.info('階段1完成，開始階段2: 並行載入核心模組...');
                         currentStage = 2;
                         updateProgress(65, '並行載入核心模組...', '載入 Chart 和 Data 管理器');
                         
@@ -652,7 +776,7 @@
                         return Promise.all(coreModules.map(module => loadScript(module)));
                     })
                     .then(() => {
-                        console.log('階段2完成，開始階段3: 並行載入輔助模組...');
+                        smartLog.info('階段2完成，開始階段3: 並行載入輔助模組...');
                         currentStage = 3;
                         updateProgress(75, '並行載入輔助模組...', '載入 Playback 和 Event 管理器');
                         
@@ -660,7 +784,7 @@
                         return Promise.all(auxiliaryModules.map(module => loadScript(module)));
                     })
                     .then(() => {
-                        console.log('階段3完成，開始階段4: 載入FVG渲染器...');
+                        smartLog.info('階段3完成，開始階段4: 載入FVG渲染器...');
                         currentStage = 4;
                         updateProgress(80, '載入FVG渲染器...', '載入簡單和多線條渲染器');
                         
@@ -995,7 +1119,7 @@
                 const chartManager = window.app.chartManager;
                 console.log('   - FVG渲染器已初始化:', !!chartManager.fvgRenderer);
                 console.log('   - 渲染器類型:', chartManager.fvgRenderer?.constructor.name);
-                console.log('   - 使用多線條渲染器:', chartManager.isUsingMultilineRenderer?.() || false);
+                console.log('   - 使用優化渲染器:', chartManager.isUsingOptimizedRenderer?.() || false);
             }
             
             console.log('📊 第2步: 數據狀態檢查');
@@ -1131,6 +1255,62 @@
                 console.error('❌ 測試載入失敗:', e);
             }
         };
+        
+        // ===== 智能載入模式切換功能 =====
+        
+        // 模式切換功能
+        window.switchLoadingMode = function(mode) {
+            if (!['production', 'debug', 'development'].includes(mode)) {
+                console.error('無效的載入模式:', mode);
+                return;
+            }
+            
+            console.log(`🔄 切換載入模式到: ${mode}`);
+            
+            // 保存到本地存儲
+            localStorage.setItem('smartLoadingMode', mode);
+            
+            // 更新URL參數
+            const url = new URL(window.location);
+            url.searchParams.set('mode', mode);
+            
+            // 重新載入頁面以應用新模式
+            window.location = url.toString();
+        };
+        
+        // 更新模式切換器UI
+        function updateModeUI() {
+            const currentMode = detectLoadingMode();
+            
+            // 更新當前模式顯示
+            const currentModeElement = document.getElementById('current-mode');
+            if (currentModeElement) {
+                currentModeElement.textContent = currentMode;
+            }
+            
+            // 更新按鈕狀態
+            document.querySelectorAll('.mode-switcher button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            const activeButton = document.getElementById(`mode-${currentMode}`);
+            if (activeButton) {
+                activeButton.classList.add('active');
+            }
+            
+            console.log(`🎯 當前載入模式: ${currentMode}`);
+        }
+        
+        // 在頁面載入完成後更新UI
+        document.addEventListener('DOMContentLoaded', function() {
+            // 稍微延遲以確保模式檢測邏輯已執行
+            setTimeout(updateModeUI, 100);
+        });
+        
+        // 如果DOM已經載入完成，立即更新UI
+        if (document.readyState !== 'loading') {
+            setTimeout(updateModeUI, 100);
+        }
         
     </script>
 </body>

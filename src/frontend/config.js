@@ -9,11 +9,40 @@ const CONFIG = {
         USE_V3: true,              // 使用V3版本（簡化精準版）
         MAX_DISPLAY_LENGTH: 40,    // V3: 最大顯示長度/清除檢測範圍
         
-        // V3版本簡化後保留的參數
+        // 多線條渲染器配置（新）
+        MULTILINE: {
+            MAX_LINES_PER_FVG: 130,    // 單個FVG最大線條數
+            MIN_LINES_PER_FVG: 4,      // 單個FVG最小線條數
+            PERFORMANCE_MODE: false,    // 性能模式（限制線條數）
+            PERFORMANCE_MAX_LINES: 50,  // 性能模式最大線條數
+        },
+        
+        // 顏色配置（新）
+        COLORS: {
+            BULLISH: {
+                FILL: 'rgba(0, 255, 140, 0.08)',    // 看漲FVG填充色
+                BORDER: '#00d68f'                     // 看漲FVG邊界色
+            },
+            BEARISH: {
+                FILL: 'rgba(255, 61, 113, 0.08)',   // 看跌FVG填充色  
+                BORDER: '#ff3d71'                     // 看跌FVG邊界色
+            },
+            CLEARED: {
+                FILL: 'rgba(128, 128, 128, 0.08)',  // 已清除FVG填充色
+                BORDER: '#888888'                     // 已清除FVG邊界色
+            }
+        },
+        
+        // 顯示設置（新）
+        DEFAULT_SHOW_FVG: true,        // 默認顯示FVG
+        DEFAULT_SHOW_MARKERS: false,   // 默認顯示標記
+        DEFAULT_SHOW_CLEARED: false,   // 默認顯示已清除FVG
+        
+        // V3版本簡化後保留的參數（兼容）
         DISPLAY_LENGTH: 40,        // FVG顯示長度（K線數量）- V3中與MAX_DISPLAY_LENGTH相同
-        OPACITY: 0.25,             // 填充透明度
-        MAX_LINES: 8,              // 最大填充線條數（降低以提升性能）
-        FALLBACK_LINES: 3,         // 退路線條數（降低以提升性能）
+        OPACITY: 0.25,             // 填充透明度（兼容舊版）
+        MAX_LINES: 8,              // 最大填充線條數（兼容舊版）
+        FALLBACK_LINES: 3,         // 退路線條數（兼容舊版）
         LINE_WIDTH: 1,             // 線條寬度
         GAP_WIDTH: 2,              // 線條間隔
         
@@ -69,7 +98,7 @@ const CONFIG = {
 
     // API 配置
     API: {
-        BASE_URL: '',                 // API 基礎URL
+        BASE_URL: 'http://127.0.0.1:5001',  // API 基礎URL
         ENDPOINTS: {
             RANDOM_DATA: '/api/random-data',
             SPECIFIC_DATA: '/api/data',

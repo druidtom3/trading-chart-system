@@ -133,8 +133,8 @@ class FVGDetectorSimple:
                 'start_price': float(L['High']),  # 多頭FVG的下邊界
                 'end_price': float(R['Low']),    # 多頭FVG的上邊界
                 'gap_size': float(R['Low'] - L['High']),
-                'gap_percentage': float((R['Low'] - L['High']) / L['High'] * 100),
-                'clearing_trigger_price': float(L['Low']),  # 多頭FVG清除條件
+                'gap_percentage': float((R['Low'] - L['High']) / L['High']),
+                'clearing_trigger_price': float(L['High']),  # 多頭FVG清除條件：收盤價突破L.High
                 'status': 'valid',
                 'left_candle': {
                     'index': l_idx,
@@ -170,8 +170,8 @@ class FVGDetectorSimple:
                 'start_price': float(R['High']),  # 空頭FVG的上邊界
                 'end_price': float(L['Low']),    # 空頭FVG的下邊界
                 'gap_size': float(L['Low'] - R['High']),
-                'gap_percentage': float((L['Low'] - R['High']) / R['High'] * 100),
-                'clearing_trigger_price': float(L['High']),  # 空頭FVG清除條件
+                'gap_percentage': float((L['Low'] - R['High']) / R['High']),
+                'clearing_trigger_price': float(L['Low']),  # 空頭FVG清除條件：收盤價跌破L.Low
                 'status': 'valid',
                 'left_candle': {
                     'index': l_idx,
@@ -211,7 +211,7 @@ class FVGDetectorSimple:
                 candle = df.iloc[i]
                 
                 if fvg['type'] == 'bullish':
-                    # 多頭FVG: 收盤價跌破 L.Low (只檢查收盤價)
+                    # 多頭FVG: 收盤價回落到 L.High 以下 (價格回填gap)
                     if candle['Close'] <= fvg['clearing_trigger_price']:
                         fvg['status'] = 'cleared'
                         fvg['cleared_at'] = datetime_to_timestamp(candle['DateTime'])
@@ -220,7 +220,7 @@ class FVGDetectorSimple:
                         self.stats['cleared_count'] += 1
                         break
                 else:  # bearish
-                    # 空頭FVG: 收盤價突破 L.High (只檢查收盤價)
+                    # 空頭FVG: 收盤價回升到 L.Low 以上 (價格回填gap)
                     if candle['Close'] >= fvg['clearing_trigger_price']:
                         fvg['status'] = 'cleared'
                         fvg['cleared_at'] = datetime_to_timestamp(candle['DateTime'])
@@ -275,8 +275,8 @@ class FVGDetectorSimple:
                 'bearish_count': self.stats['bearish_detected'],
                 'valid_count': self.stats['valid_count'],
                 'cleared_count': self.stats['cleared_count'],
-                'bullish_percentage': (self.stats['bullish_detected'] / max(1, self.stats['total_detected'])) * 100,
-                'bearish_percentage': (self.stats['bearish_detected'] / max(1, self.stats['total_detected'])) * 100,
-                'clearing_rate': (self.stats['cleared_count'] / max(1, self.stats['total_detected'])) * 100
+                'bullish_percentage': (self.stats['bullish_detected'] / max(1, self.stats['total_detected'])),
+                'bearish_percentage': (self.stats['bearish_detected'] / max(1, self.stats['total_detected'])),
+                'clearing_rate': (self.stats['cleared_count'] / max(1, self.stats['total_detected']))
             }
         }

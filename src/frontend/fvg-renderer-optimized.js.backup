@@ -152,12 +152,8 @@ class FVGRendererOptimized {
             // 創建頂部線系列
             const topLineSeries = this.chart.addSeries(LightweightCharts.LineSeries, {
                 color: color.border,
-                lineWidth: 2,  // 增加線寬試試
-                lineStyle: lineStyle,
+                lineWidth: 1,
                 crosshairMarkerVisible: false,
-                lastValueVisible: false,
-                priceLineVisible: false,  // 禁用價格線
-                baseLineVisible: false,   // 禁用基準線
             });
             
             // 設定頂部線數據（有限長度）
@@ -169,12 +165,9 @@ class FVGRendererOptimized {
             // 創建底部線系列
             const bottomLineSeries = this.chart.addSeries(LightweightCharts.LineSeries, {
                 color: color.border,
-                lineWidth: 2,  // 增加線寬試試
-                lineStyle: lineStyle,
+                lineWidth: 1,
                 crosshairMarkerVisible: false,
                 lastValueVisible: false,
-                priceLineVisible: false,  // 禁用價格線
-                baseLineVisible: false,   // 禁用基準線
             });
             
             // 設定底部線數據（有限長度）

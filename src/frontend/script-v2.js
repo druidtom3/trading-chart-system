@@ -3,11 +3,50 @@
 // 全局變數
 let chart = null;
 let currentTimeframe = 'M15';  // 預設時間刻度
+window.currentTimeframe = currentTimeframe;  // 設為全域變數供FVG渲染器使用
 let currentData = null;
 let chartManager = null;
 let dataManager = null;
 let playbackManager = null;
 let eventManager = null;
+
+// 診斷函數 - 暴露到全域以便在控制台調用
+window.runDiagnostics = function() {
+    console.log('🔍 手動運行系統診斷...');
+    if (window.errorMonitor) {
+        return window.errorMonitor.generateDiagnosticReport();
+    } else {
+        console.error('ErrorMonitor 未載入');
+        return null;
+    }
+};
+
+window.validateCurrentData = function() {
+    console.log('🔍 手動驗證當前數據...');
+    if (window.dataValidator && currentData) {
+        if (currentData.data) {
+            window.dataValidator.validateCandleData(currentData.data, 'MANUAL_CHECK');
+        }
+        if (currentData.fvgs) {
+            window.dataValidator.validateFVGData(currentData.fvgs, 'MANUAL_CHECK');
+        }
+        return window.dataValidator.getValidationReport();
+    } else {
+        console.error('DataValidator 未載入或無當前數據');
+        return null;
+    }
+};
+
+window.clearAllErrors = function() {
+    console.log('🧹 清除所有錯誤記錄...');
+    if (window.errorMonitor) {
+        window.errorMonitor.clearErrors();
+    }
+    if (window.dataValidator) {
+        window.dataValidator.clearHistory();
+    }
+    console.log('✅ 錯誤記錄已清除');
+};
 
 // DOM 元素快取
 const elements = {
@@ -18,7 +57,6 @@ const elements = {
     holidayInfo: null,
     refreshBtn: null,
     resetZoomBtn: null,
-    fvgToggleBtn: null,
     drawLineBtn: null,
     clearLinesBtn: null,
     playBtn: null,
@@ -69,6 +107,12 @@ async function initializeSystem() {
         console.log('6. 載入初始資料...');
         await loadInitialData();
         
+        // 延遲檢查FVG顯示（給渲染一些時間）
+        console.log('7. 延遲檢查FVG顯示...');
+        setTimeout(() => {
+            ensureFVGDisplay();
+        }, 1000);
+        
         console.log('系統初始化完成！');
     } catch (error) {
         console.error('系統初始化失敗:', error);
@@ -96,7 +140,7 @@ function initializeElements() {
     elements.holidayInfo = document.getElementById('holiday-info');
     elements.refreshBtn = document.getElementById('refresh-btn');
     elements.resetZoomBtn = document.getElementById('reset-zoom-btn');
-    elements.fvgToggleBtn = document.getElementById('fvg-toggle-btn');
+    // fvgToggleBtn 已移除，改用左側面板控制
     elements.drawLineBtn = document.getElementById('draw-line-btn');
     elements.clearLinesBtn = document.getElementById('clear-lines-btn');
     elements.playBtn = document.getElementById('play-btn');
@@ -138,7 +182,7 @@ async function checkBackendStatus() {
     const checkStatus = async () => {
         try {
             console.log('檢查後端載入狀態...');
-            const response = await fetch('/api/loading-status');
+            const response = await fetch('http://127.0.0.1:5001/api/loading-status');
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
@@ -337,12 +381,18 @@ function handleIndicatorToggle(indicatorId, isChecked) {
     switch(indicatorId) {
         case 'fvg':
             if (chartManager && chartManager.fvgRenderer) {
+                console.log(`🎛️ 切換FVG顯示: ${isChecked}`);
                 chartManager.fvgRenderer.setVisible(isChecked);
-                if (isChecked && currentData) {
-                    chartManager.updateFVGs(currentData.fvgs);
+                if (isChecked && currentData && currentData.fvgs) {
+                    console.log(`🎨 重新渲染 ${currentData.fvgs.length} 個FVG`);
+                    chartManager.updateFVGs(currentData.fvgs, currentTimeframe);
+                } else if (!isChecked) {
+                    console.log('🧹 隱藏FVG - 已由setVisible處理');
                 } else {
-                    chartManager.fvgRenderer.clearAll();
+                    console.log('⚠️ 無FVG數據可顯示');
                 }
+            } else {
+                console.error('❌ FVG渲染器不可用');
             }
             break;
         case 'sr':
@@ -392,6 +442,7 @@ function setupEventListeners() {
             const data = await dataManager.loadRandomData(currentTimeframe);
             if (data) {
                 currentData = data;
+                window.currentData = data; // 確保全域可訪問
                 updateUI(data);
                 hideLoading();
             }
@@ -407,18 +458,7 @@ function setupEventListeners() {
         chartManager.resetZoom();
     });
     
-    // FVG 切換按鈕
-    elements.fvgToggleBtn.addEventListener('click', () => {
-        const isVisible = chartManager.toggleFVG();
-        elements.fvgToggleBtn.textContent = isVisible ? 'FVG 開' : 'FVG 關';
-        elements.fvgToggleBtn.classList.toggle('active', isVisible);
-        
-        // 同步更新指標面板的勾選狀態
-        const fvgCheckbox = document.getElementById('fvg-checkbox');
-        if (fvgCheckbox) {
-            fvgCheckbox.checked = isVisible;
-        }
-    });
+    // FVG 切換按鈕已移除，使用左側面板控制
     
     // 畫線按鈕
     elements.drawLineBtn.addEventListener('click', () => {
@@ -461,6 +501,7 @@ function setupEventListeners() {
 async function switchTimeframe(timeframe) {
     console.log(`切換到 ${timeframe} 時間刻度`);
     currentTimeframe = timeframe;
+    window.currentTimeframe = timeframe;  // 同步更新全域變數
     
     if (playbackManager.isPlaying) {
         playbackManager.switchTimeframe(timeframe);
@@ -471,6 +512,7 @@ async function switchTimeframe(timeframe) {
             const data = await dataManager.loadSpecificData(currentData.date, timeframe);
             if (data) {
                 currentData = data;
+                window.currentData = data; // 確保全域可訪問
                 updateUI(data);
                 hideLoading();
             }
@@ -486,14 +528,40 @@ async function loadInitialData() {
     showLoading();
     
     try {
+        console.log('🔍 CHECKPOINT-LOAD-START: 開始載入初始數據');
         const data = await dataManager.loadRandomData(currentTimeframe);
+        
         if (data) {
+            console.log('🔍 CHECKPOINT-LOAD-RECEIVED: 收到後端數據', {
+                date: data.date,
+                candleCount: data.data ? data.data.length : 0,
+                fvgCount: data.fvgs ? data.fvgs.length : 0,
+                hasData: !!data.data,
+                hasFvgs: !!data.fvgs
+            });
+
+            // 驗證 K線數據
+            if (window.dataValidator && data.data) {
+                window.dataValidator.validateCandleData(data.data, 'INITIAL_LOAD');
+            }
+
+            // 驗證 FVG 數據  
+            if (window.dataValidator && data.fvgs) {
+                window.dataValidator.validateFVGData(data.fvgs, 'INITIAL_LOAD');
+            }
+
             currentData = data;
+            window.currentData = data; // 確保全域可訪問
             updateUI(data);
+            hideLoading();
+        } else {
+            console.error('🔍 CHECKPOINT-LOAD-FAILED: 未收到數據');
+            alert('未能載入數據，請檢查後端連接');
             hideLoading();
         }
     } catch (error) {
-        console.error('載入初始資料失敗:', error);
+        console.error('🔍 CHECKPOINT-LOAD-ERROR: 載入初始資料失敗:', error);
+        console.error('錯誤堆疊:', error.stack);
         alert('載入資料失敗，請重新整理頁面');
         hideLoading();
     }
@@ -518,11 +586,40 @@ function updateUI(data) {
     }
     
     // 更新圖表
-    chartManager.updateData(data.data);
+    console.log('🔍 CHECKPOINT-CHART-UPDATE: 準備更新圖表數據');
+    if (window.dataValidator && data.data) {
+        window.dataValidator.validateCandleData(data.data, 'CHART_UPDATE');
+    }
     
-    // 更新 FVG - 傳遞當前時間刻度
-    if (data.fvgs && chartManager.fvgRenderer.isVisible) {
-        chartManager.updateFVGs(data.fvgs, currentTimeframe);
+    try {
+        chartManager.updateData(data.data);
+        console.log('✅ CHECKPOINT-CHART-SUCCESS: 圖表更新成功');
+    } catch (chartError) {
+        console.error('❌ CHECKPOINT-CHART-FAILED: 圖表更新失敗', chartError);
+        console.error('圖表錯誤堆疊:', chartError.stack);
+        throw chartError; // 重新拋出錯誤以便上層處理
+    }
+    
+    // 更新 FVG - 檢查複選框狀態和數據
+    const fvgCheckbox = document.getElementById('fvg-checkbox');
+    const isFVGEnabled = fvgCheckbox && fvgCheckbox.checked;
+    
+    if (data.fvgs && chartManager.fvgRenderer) {
+        console.log('📊 準備更新FVG數據:', data.fvgs.length, '個');
+        console.log('📊 FVG複選框狀態:', isFVGEnabled ? '✅勾選' : '❌未勾選');
+        
+        if (isFVGEnabled) {
+            // 確保渲染器顯示狀態正確
+            chartManager.fvgRenderer.setVisible(true);
+            chartManager.updateFVGs(data.fvgs, currentTimeframe);
+            console.log('✅ FVG數據已更新並顯示');
+        } else {
+            console.log('⏭️ FVG已關閉，跳過渲染');
+        }
+    } else if (!data.fvgs) {
+        console.warn('⚠️ 後端回傳無FVG數據');
+    } else if (!chartManager.fvgRenderer) {
+        console.warn('⚠️ FVG渲染器未初始化');
     }
     
     // 更新狀態列
@@ -568,6 +665,47 @@ function formatDateTime(date) {
         minute: '2-digit',
         hour12: false 
     });
+}
+
+// 確保FVG正確顯示
+function ensureFVGDisplay() {
+    console.group('🔧 FVG顯示檢查');
+    
+    const fvgCheckbox = document.getElementById('fvg-checkbox');
+    const isFVGChecked = fvgCheckbox && fvgCheckbox.checked;
+    const hasData = currentData && currentData.fvgs && currentData.fvgs.length > 0;
+    const hasRenderer = chartManager && chartManager.fvgRenderer;
+    
+    console.log('FVG顯示狀態檢查:');
+    console.log('   - FVG複選框勾選:', isFVGChecked);
+    console.log('   - 有FVG數據:', hasData);
+    console.log('   - 有FVG渲染器:', hasRenderer);
+    
+    if (isFVGChecked && hasData && hasRenderer) {
+        console.log('🎯 所有條件滿足，確保FVG顯示');
+        try {
+            // 確保渲染器設為可見
+            chartManager.fvgRenderer.setVisible(true);
+            
+            // 暫時禁用強制重新渲染以避免無限迴圈
+            // chartManager.updateFVGs(currentData.fvgs, currentTimeframe);
+            
+            // 檢查渲染結果
+            const stats = chartManager.fvgRenderer.getStats ? chartManager.fvgRenderer.getStats() : null;
+            console.log('FVG渲染統計:', stats);
+            
+            console.log('✅ FVG顯示檢查完成');
+        } catch (error) {
+            console.error('❌ FVG顯示檢查失敗:', error);
+        }
+    } else {
+        console.log('⏭️ 跳過FVG顯示（條件不滿足）');
+        if (!isFVGChecked) console.log('   原因: FVG複選框未勾選');
+        if (!hasData) console.log('   原因: 無FVG數據');
+        if (!hasRenderer) console.log('   原因: FVG渲染器未初始化');
+    }
+    
+    console.groupEnd();
 }
 
 // 處理圖表 hover

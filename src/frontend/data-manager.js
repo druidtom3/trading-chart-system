@@ -45,7 +45,7 @@ class DataManager {
         this.showLoading();
 
         try {
-            const url = `/api/random-data?timeframe=${timeframe}`;
+            const url = `http://127.0.0.1:5001/api/random-data?timeframe=${timeframe}`;
             
             const response = await fetch(url, {
                 method: 'GET',
@@ -58,6 +58,8 @@ class DataManager {
             }
 
             const data = await response.json();
+            
+            // 完全信任後端返回的數據量（已移除前端保護邏輯）
             
             // 快取數據
             const cacheKey = `${data.date}-${data.timeframe}`;
@@ -88,7 +90,7 @@ class DataManager {
         this.showLoading();
 
         try {
-            const url = `/api/data/${date}/${timeframe}`;
+            const url = `http://127.0.0.1:5001/api/data/${date}/${timeframe}`;
             const response = await fetch(url);
 
             if (!response.ok) {
@@ -97,6 +99,8 @@ class DataManager {
             }
 
             const data = await response.json();
+            
+            // 完全信任後端返回的數據量（已移除前端保護邏輯）
             
             // 快取數據
             this.dataCache.set(cacheKey, data);
@@ -116,14 +120,24 @@ class DataManager {
      */
     async loadM1PlaybackData(date) {
         try {
-            const url = `/api/m1-playback-data/${date}`;
+            const url = `http://127.0.0.1:5001/api/m1-playback-data/${date}`;
             const response = await fetch(url);
 
             if (!response.ok) {
                 throw new Error('無法載入 M1 播放資料');
             }
 
-            return await response.json();
+            const data = await response.json();
+            
+            // 前端數據量保護：硬性限制400根K線
+            const maxCandles = 400;
+            if (data.data && data.data.length > maxCandles) {
+                console.warn(`⚠️ 播放數據量超限，從 ${data.data.length} 根K線截取最新 ${maxCandles} 根`);
+                data.data = data.data.slice(-maxCandles);
+                data.candle_count = data.data.length;
+            }
+            
+            return data;
 
         } catch (error) {
             throw new Error(`載入播放資料失敗: ${error.message}`);
@@ -135,7 +149,7 @@ class DataManager {
      */
     async loadSpecificDataSilently(date, timeframe) {
         try {
-            const url = `/api/data/${date}/${timeframe}`;
+            const url = `http://127.0.0.1:5001/api/data/${date}/${timeframe}`;
             const response = await fetch(url);
 
             if (!response.ok) {
@@ -143,6 +157,15 @@ class DataManager {
             }
 
             const data = await response.json();
+            
+            // 前端數據量保護：硬性限制400根K線
+            const maxCandles = 400;
+            if (data.data && data.data.length > maxCandles) {
+                console.warn(`⚠️ 靜默載入數據量超限，從 ${data.data.length} 根K線截取最新 ${maxCandles} 根`);
+                data.data = data.data.slice(-maxCandles);
+                data.candle_count = data.data.length;
+            }
+            
             const cacheKey = `${date}-${timeframe}`;
             this.dataCache.set(cacheKey, data);
 
@@ -282,7 +305,41 @@ class DataManager {
         const cacheKey = `${date}-${timeframe}`;
         return this.dataCache.get(cacheKey);
     }
+
+    /**
+     * 清除所有緩存
+     */
+    clearCache() {
+        this.dataCache.clear();
+        console.log('✨ 前端數據緩存已清除');
+    }
+
+    /**
+     * 清除特定緩存項目
+     */
+    clearSpecificCache(date, timeframe) {
+        const cacheKey = `${date}-${timeframe}`;
+        const removed = this.dataCache.delete(cacheKey);
+        if (removed) {
+            console.log(`✨ 已清除緩存: ${cacheKey}`);
+        }
+        return removed;
+    }
 }
 
 // 暴露到全局範圍
 window.DataManager = DataManager;
+
+// 全局緩存清除函數
+window.clearAllCache = function() {
+    if (window.dataManager) {
+        window.dataManager.clearCache();
+    }
+    // 清除瀏覽器緩存
+    if ('caches' in window) {
+        caches.keys().then(names => {
+            names.forEach(name => caches.delete(name));
+        });
+    }
+    console.log('🧹 所有緩存已清除，建議刷新頁面');
+};
