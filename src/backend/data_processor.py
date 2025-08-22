@@ -8,11 +8,20 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
-from utils.config import DATA_DIR, CSV_FILES, DEFAULT_CANDLE_COUNT, LOG_DIR
+from utils.config import (DATA_DIR, CSV_FILES, DEFAULT_CANDLE_COUNT, LOG_DIR, RANDOM_DATE_CONFIG,
+                          FVG_CLEARING_WINDOW, CACHE_MAX_SIZE, CACHE_VERSION, 
+                          MAX_RECORDS_LIMIT, MEMORY_OPTIMIZATION_THRESHOLD)
+from utils.time_utils import datetime_to_timestamp, validate_timestamp
+try:
+    from utils.loading_config import LOADING_CONFIG, OPTIMIZED_DTYPES, MEMORY_CONFIG, FVG_PERFORMANCE_CONFIG
+    USE_PERFORMANCE_OPTIMIZATION = True
+except ImportError:
+    USE_PERFORMANCE_OPTIMIZATION = False
+    LOADING_CONFIG = {"use_vectorization": False, "enable_caching": False}
+    OPTIMIZED_DTYPES = {}
+    print("注意: 性能優化配置不可用，使用默認設置")
 from backend.time_utils import TimeConverter
-from backend.fvg_detector import FVGDetector
-from backend.fvg_detector_v3 import FVGDetectorV3
-from backend.fvg_detector_v4 import FVGDetectorV4
+from backend.fvg_detector_simple import FVGDetectorSimple
 from backend.us_holidays import holiday_detector
 from backend.candle_continuity_checker import CandleContinuityChecker
 try:
@@ -37,15 +46,13 @@ class DataProcessor:
         self.data_cache = {}  # {timeframe: DataFrame}
         self.time_converter = TimeConverter()
         self.available_dates = set()
-        self.fvg_detector = FVGDetector()  # 舊版FVG檢測器
-        self.fvg_detector_v3 = FVGDetectorV3()  # V3版FVG檢測器（簡化精準版）
-        self.fvg_detector_v4 = FVGDetectorV4(clearing_window=40, enable_logging=True)  # V4版FVG檢測器（規則V3實施）
+        self.fvg_detector_simple = FVGDetectorSimple(clearing_window=FVG_CLEARING_WINDOW)  # 簡化版本（無複雜時間轉換）
         self.vwap_available = {}  # 追蹤各時間框架是否有 VWAP 資料
         
         # 新增：性能優化相關緩存 (優化內存使用)
         self._response_cache = {}  # API響應緩存: {cache_key: result}
         self._processed_data_cache = {}  # 預處理數據緩存: {timeframe: recent_data}
-        self._cache_max_size = 20  # 減少最大緩存條目數 (從100降到20)
+        self._cache_max_size = CACHE_MAX_SIZE  # 緩存最大條目數
         self._preload_days = 7  # 減少預載入天數 (從30降到7天)
         
         # 選擇連續性檢查器版本
@@ -171,16 +178,58 @@ class DataProcessor:
                     # 讀取最近的數據（更有用）而不是跳過整個文件
                     df = pd.read_csv(filepath)
                     original_count = len(df)
-                    # 保留最近2年的數據以保持功能完整性
-                    if len(df) > 200000:  # 如果數據量很大
-                        df = df.tail(200000)  # 保留最近20萬筆記錄
+                    # 使用配置中的400根K線限制，避免堆棧溢出
+                    from utils.config import DEFAULT_CANDLE_COUNT
+                    
+                    # 根據時間框架獲取對應的K線數量
+                    timeframe_key = None
+                    for tf in ['M1', 'M5', 'M15', 'H1', 'H4', 'D1']:
+                        if tf in filepath:
+                            timeframe_key = tf
+                            break
+                    
+                    if timeframe_key:
+                        candle_limit = DEFAULT_CANDLE_COUNT.get(timeframe_key, 400)
+                        if len(df) > candle_limit:
+                            df = df.tail(candle_limit)
+                            print(f"   [{timeframe_key}優化] 從 {original_count:,} 筆記錄中保留最近 {len(df):,} 筆（配置: {candle_limit}根）")
+                        else:
+                            print(f"   [{timeframe_key}] 數據量適中，載入全部 {len(df):,} 筆記錄")
+                    elif len(df) > MAX_RECORDS_LIMIT:  # 其他時間框架
+                        df = df.tail(MAX_RECORDS_LIMIT)  # 保留最近記錄
                         print(f"   [優化] 從 {original_count:,} 筆記錄中保留最近 {len(df):,} 筆")
                     else:
                         print(f"   數據量適中，載入全部 {len(df):,} 筆記錄")
                 else:
-                    # 完整載入
+                    # 完整載入，但仍需限制K線數量
                     df = pd.read_csv(filepath)
-                    print(f"   CSV 讀取完成: {len(df):,} 筆原始記錄")
+                    original_count = len(df)
+                    print(f"   CSV 讀取完成: {original_count:,} 筆原始記錄")
+                    
+                    # 確保所有時間刻度都限制在400根K線以內
+                    from utils.config import DEFAULT_CANDLE_COUNT
+                    
+                    # 根據時間框架獲取對應的K線數量
+                    timeframe_key = None
+                    for tf in ['M1', 'M5', 'M15', 'H1', 'H4', 'D1']:
+                        if tf in filepath:
+                            timeframe_key = tf
+                            break
+                    
+                    if timeframe_key:
+                        candle_limit = DEFAULT_CANDLE_COUNT.get(timeframe_key, 400)
+                        if len(df) > candle_limit:
+                            df = df.tail(candle_limit)
+                            print(f"   [{timeframe_key}限制] 從 {original_count:,} 筆記錄中保留最近 {len(df):,} 筆（配置: {candle_limit}根）")
+                        else:
+                            print(f"   [{timeframe_key}] 數據量適中，載入全部 {len(df):,} 筆記錄")
+                    else:
+                        # 未知時間框架，默認限制400根
+                        if len(df) > MEMORY_OPTIMIZATION_THRESHOLD:
+                            df = df.tail(MEMORY_OPTIMIZATION_THRESHOLD)
+                            print(f"   [默認限制] 從 {original_count:,} 筆記錄中保留最近 {len(df):,} 筆")
+                        else:
+                            print(f"   數據量適中，載入全部 {len(df):,} 筆記錄")
                 
                 # 動態檢查必要欄位（基於時間框架）
                 base_columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
@@ -234,6 +283,14 @@ class DataProcessor:
                 
                 # 收集可用日期
                 dates = set(df['Date_Only'].unique())
+                
+                # 應用固定起始日期配置
+                if RANDOM_DATE_CONFIG['start_date']:
+                    from datetime import datetime as dt
+                    fixed_start_date = dt.strptime(RANDOM_DATE_CONFIG['start_date'], '%Y-%m-%d').date()
+                    dates = {d for d in dates if d >= fixed_start_date}
+                    print(f"   應用固定起始日期 {fixed_start_date}: 過濾後 {len(dates):,} 天")
+                
                 if not self.available_dates:
                     self.available_dates = dates
                     print(f"   初始化可用日期: {len(dates):,} 天")
@@ -305,13 +362,22 @@ class DataProcessor:
         if not self.available_dates:
             raise ValueError("沒有可用的交易日期")
         
-        selected_date = random.choice(list(self.available_dates))
+        dates_list = sorted(list(self.available_dates))
+        selected_date = random.choice(dates_list)
+        
+        # 提供詳細的日誌信息
+        min_date = dates_list[0]
+        max_date = dates_list[-1]
+        total_days = len(dates_list)
         print(f"隨機選擇日期: {selected_date}")
+        print(f"可用範圍: {min_date} ~ {max_date} (共 {total_days} 天)")
+        print(f"固定起始日期: {RANDOM_DATE_CONFIG['start_date']} (配置)")
+        
         return selected_date
     
     def detect_fvgs(self, df: pd.DataFrame, timeframe: str) -> List[Dict]:
         """
-        檢測 FVG (使用V4檢測器 - 規則V3實施)
+        檢測 FVG (使用簡化檢測器)
         
         Args:
             df: DataFrame，包含 K 線資料
@@ -324,64 +390,31 @@ class DataProcessor:
             # 確保資料按時間排序
             df = df.sort_values('DateTime').reset_index(drop=True)
             
-            print(f"   正在檢測 {timeframe} FVG (使用V4檢測器)...")
+            print(f"   正在檢測 {timeframe} FVG (使用簡化檢測器)...")
             
-            # 準備V4檢測器的資料格式
-            df_v4 = df.copy()
-            if 'DateTime' in df_v4.columns:
-                df_v4['time'] = df_v4['DateTime'].astype('int64') // 10**9  # 轉換為Unix時間戳
-            
-            # 重命名列以符合V4檢測器預期格式
-            column_mapping = {
-                'Open': 'open',
-                'High': 'high', 
-                'Low': 'low',
-                'Close': 'close'
-            }
-            
-            for old_col, new_col in column_mapping.items():
-                if old_col in df_v4.columns:
-                    df_v4[new_col] = df_v4[old_col]
-            
-            # 使用V4檢測器（啟用動態清除）
-            fvgs = self.fvg_detector_v4.detect_fvgs(df_v4, enable_dynamic_clearing=True)
+            # 使用簡化檢測器 - 直接使用DataFrame，無複雜轉換
+            fvgs = self.fvg_detector_simple.detect_fvgs(df, timeframe=timeframe)
             
             # 轉換為前端格式
-            formatted_fvgs = self.fvg_detector_v4.convert_for_frontend(fvgs, display_limit=40)
+            formatted_fvgs = self.fvg_detector_simple.convert_for_frontend(fvgs)
             
             # 獲取統計信息
-            stats = self.fvg_detector_v4.get_statistics()
+            stats = self.fvg_detector_simple.get_statistics()
             
-            print(f"   {timeframe} FVG V4檢測完成:")
-            print(f"     - 總檢測: {stats['statistics']['total_detected']} 個")
-            print(f"     - 多頭: {stats['statistics']['bullish_detected']} 個")
-            print(f"     - 空頭: {stats['statistics']['bearish_detected']} 個") 
-            print(f"     - 有效: {stats['statistics']['valid_count']} 個")
-            print(f"     - 已清除: {stats['statistics']['cleared_count']} 個")
+            print(f"   {timeframe} FVG 簡化檢測完成:")
+            print(f"     - 總檢測: {stats['basic_stats']['total_detected']} 個")
+            print(f"     - 多頭: {stats['basic_stats']['bullish_detected']} 個")
+            print(f"     - 空頭: {stats['basic_stats']['bearish_detected']} 個") 
+            print(f"     - 有效: {stats['basic_stats']['valid_count']} 個")
+            print(f"     - 已清除: {stats['basic_stats']['cleared_count']} 個")
             print(f"     - 前端顯示: {len(formatted_fvgs)} 個")
             
             return formatted_fvgs
             
         except Exception as e:
-            print(f"   FVG V4檢測失敗，回退到V3檢測器: {str(e)}")
-            logging.error(f"FVG V4 detection failed for {timeframe}, falling back to V3: {str(e)}")
-            
-            # 回退到V3檢測器
-            try:
-                df_v3 = df.copy()
-                if 'DateTime' in df_v3.columns:
-                    df_v3['time'] = df_v3['DateTime'].astype('int64') // 10**9
-                
-                fvgs = self.fvg_detector_v3.detect_fvgs(df_v3)
-                formatted_fvgs = self.fvg_detector_v3.format_fvgs_for_frontend(fvgs)
-                
-                print(f"   {timeframe} FVG V3檢測(回退): 發現 {len(formatted_fvgs)} 個有效 FVG")
-                return formatted_fvgs
-                
-            except Exception as fallback_error:
-                print(f"   FVG V3檢測也失敗: {str(fallback_error)}")
-                logging.error(f"FVG V3 fallback also failed for {timeframe}: {str(fallback_error)}")
-                return []
+            print(f"   FVG 檢測失敗: {str(e)}")
+            logging.error(f"FVG detection failed for {timeframe}: {str(e)}")
+            return []
     
     def get_pre_market_data(self, target_date: date, timeframe: str = 'H4') -> Optional[Dict]:
         """
@@ -394,8 +427,10 @@ class DataProcessor:
         Returns:
             Dict: 包含圖表資料和相關資訊
         """
-        # 生成緩存鍵
-        cache_key = f"pre_market_{target_date}_{timeframe}"
+        # 生成緩存鍵（v3：修復FVG檢測條件版本）
+        from utils.config import DEFAULT_CANDLE_COUNT
+        max_candles = DEFAULT_CANDLE_COUNT.get(timeframe, 400)
+        cache_key = f"pre_market_{target_date}_{timeframe}_{CACHE_VERSION}_{max_candles}"
         
         # 檢查是否有緩存的響應
         cached_response = self._get_cached_response(cache_key)
@@ -444,16 +479,20 @@ class DataProcessor:
             
             print(f"總可用記錄: {len(pre_market_data)} 筆")
             
-            # FVG檢測範圍：擴大到2000根K線以獲得更多FVG
-            # M15: 2000根 = 500小時 = 約3週數據
-            # H1: 2000根 = 2000小時 = 約3個月數據  
-            detection_range_candles = 2000
+            # FVG檢測範圍：使用配置的K線數量限制
+            from utils.config import DEFAULT_CANDLE_COUNT
+            detection_range_candles = DEFAULT_CANDLE_COUNT.get(timeframe, 400)
             
-            # 如果資料不足，就取所有可用的
+            # 如果資料不足，就取所有可用的，但不超過配置限制
             actual_count = min(detection_range_candles, len(pre_market_data))
             result_data = pre_market_data.tail(actual_count)
             
             print(f"目標K線數: {detection_range_candles}，實際輸出: {len(result_data)} 根K線")
+            
+            # 數據量驗證：確保不超過配置限制
+            if len(result_data) > detection_range_candles:
+                result_data = result_data.tail(detection_range_candles)
+                print(f"⚠️ 數據量驗證：截取最新 {len(result_data)} 根K線")
             
             # 檢測 FVG
             fvgs = self.detect_fvgs(result_data, timeframe)
@@ -462,7 +501,7 @@ class DataProcessor:
             chart_data = []
             for _, row in result_data.iterrows():
                 data_point = {
-                    'time': int(row['DateTime'].timestamp()),
+                    'time': datetime_to_timestamp(row['DateTime']),
                     'open': float(row['Open']),
                     'high': float(row['High']),
                     'low': float(row['Low']),
@@ -588,6 +627,19 @@ class DataProcessor:
             print(f"開盤後記錄: {len(market_data)} 筆")
             print(f"資料時間範圍: {market_data['DateTime'].min()} ~ {market_data['DateTime'].max()}")
             
+            # 限制數據量以提升性能：使用配置的K線數量限制
+            from utils.config import DEFAULT_CANDLE_COUNT
+            max_candles = DEFAULT_CANDLE_COUNT.get(timeframe, 400)
+            
+            if len(market_data) > max_candles:
+                market_data = market_data.tail(max_candles)
+                print(f"數據量限制: 從開盤後記錄中取最近 {len(market_data)} 筆")
+            
+            # 數據量驗證：最終確保不超過限制
+            if len(market_data) > max_candles:
+                market_data = market_data.tail(max_candles)
+                print(f"⚠️ 最終數據量驗證：截取最新 {len(market_data)} 根K線")
+            
             # 檢測 FVG
             fvgs = self.detect_fvgs(market_data, timeframe)
             
@@ -595,7 +647,7 @@ class DataProcessor:
             chart_data = []
             for _, row in market_data.iterrows():
                 data_point = {
-                    'time': int(row['DateTime'].timestamp()),
+                    'time': datetime_to_timestamp(row['DateTime']),
                     'open': float(row['Open']),
                     'high': float(row['High']),
                     'low': float(row['Low']),

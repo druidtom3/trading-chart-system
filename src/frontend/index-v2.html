@@ -4,9 +4,48 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>交易圖表系統 - 紐約開盤前分析</title>
+    
+    <!-- 性能優化：預載入關鍵資源 -->
+    <link rel="preload" href="config.js" as="script">
+    <link rel="preload" href="chart-manager.js" as="script">
+    <link rel="preload" href="data-manager.js" as="script">
+    <link rel="preload" href="fvg-renderer-optimized.js" as="script">
+    <link rel="prefetch" href="playback-manager.js" as="script">
+    <link rel="prefetch" href="event-manager.js" as="script">
+    
     <link rel="stylesheet" href="style-v2.css">
 </head>
 <body>
+    <!-- 載入進度覆蓋層 -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-container">
+            <div class="loading-header">
+                <h2>交易圖表系統載入中</h2>
+                <div class="loading-subtitle">正在初始化數據和功能模組...</div>
+            </div>
+            
+            <div class="progress-section">
+                <div class="progress-bar-container">
+                    <div id="progress-bar" class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                    <div id="progress-text" class="progress-text">0%</div>
+                </div>
+                
+                <div id="current-step" class="current-step">準備載入資料...</div>
+                <div id="current-file" class="current-file"></div>
+                
+                <div class="details-section">
+                    <div id="time-info" class="time-info">
+                        <span id="elapsed-time">已用時間: 0s</span>
+                        <span id="estimated-time">預估剩餘: --</span>
+                    </div>
+                    <div id="loading-details" class="loading-details"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 主要佈局容器 -->
     <div class="main-layout">
         <!-- 左側固定技術指標面板 -->
@@ -31,6 +70,39 @@
                             <span class="indicator-name">Fair Value Gap (FVG)</span>
                             <button class="settings-btn" data-indicator="fvg" title="設定參數">⚙</button>
                         </label>
+                        
+                        <!-- FVG 子設定項目 -->
+                        <div class="sub-indicator-list" id="fvg-sub-controls">
+                            <label class="sub-indicator-item">
+                                <input type="checkbox" id="fvg-markers-checkbox">
+                                <span class="sub-indicator-name">FVG標記 (F1, F2...)</span>
+                            </label>
+                            
+                            <label class="sub-indicator-item">
+                                <input type="checkbox" id="fvg-cleared-checkbox">
+                                <span class="sub-indicator-name">顯示已清除FVG</span>
+                            </label>
+                            
+                            <div class="sub-indicator-item">
+                                <label for="fvg-performance-mode" class="sub-indicator-name">性能模式:</label>
+                                <select id="fvg-performance-mode" class="performance-select">
+                                    <option value="high">高質量 (130線)</option>
+                                    <option value="balanced">平衡 (60線)</option>
+                                    <option value="performance">性能優先 (20線)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="fvg-stats" id="fvg-stats">
+                                <div class="stats-item">
+                                    <span>渲染圖元:</span>
+                                    <span id="fvg-primitives-count">-</span>
+                                </div>
+                                <div class="stats-item">
+                                    <span>標記數量:</span>
+                                    <span id="fvg-markers-count">-</span>
+                                </div>
+                            </div>
+                        </div>
                         
                         <label class="indicator-item">
                             <input type="checkbox" id="sr-checkbox">
@@ -148,7 +220,6 @@
                         <div class="action-buttons">
                             <button id="refresh-btn" class="btn btn-primary">隨機日期</button>
                             <button id="reset-zoom-btn" class="btn btn-secondary">重置縮放</button>
-                            <button id="fvg-toggle-btn" class="btn btn-toggle active">FVG 開</button>
                             <button id="test-scaling-btn" class="btn btn-warning">測試縮放</button>
                             <button id="draw-line-btn" class="btn btn-tool">畫線</button>
                             <button id="clear-lines-btn" class="btn btn-danger">清除線</button>
@@ -243,23 +314,130 @@
     <script>
         // 更新進度條
         function updateProgress(percent, text, step) {
-            const progressBar = document.getElementById('v5-progress-bar');
-            const progressText = document.getElementById('v5-progress-text');
-            const progressPercent = document.getElementById('v5-progress-percent');
-            const progressSteps = document.getElementById('v5-progress-steps');
+            // 更新新的載入進度條元素
+            const progressFill = document.getElementById('progress-fill');
+            const progressText = document.getElementById('progress-text');
+            const currentStep = document.getElementById('current-step');
+            const currentFile = document.getElementById('current-file');
+            const loadingDetails = document.getElementById('loading-details');
             
-            if (progressBar) progressBar.style.width = percent + '%';
-            if (progressText) progressText.textContent = text;
-            if (progressPercent) progressPercent.textContent = percent + '%';
-            if (step && progressSteps) {
+            if (progressFill) progressFill.style.width = percent + '%';
+            if (progressText) progressText.textContent = Math.round(percent) + '%';
+            if (currentStep) currentStep.textContent = text;
+            
+            if (step && currentFile) {
+                currentFile.textContent = step;
+            }
+            
+            // 更新載入詳情
+            if (step && loadingDetails) {
+                const stepDiv = document.createElement('div');
+                stepDiv.className = 'step-info';
+                stepDiv.textContent = `► ${new Date().toLocaleTimeString()}: ${step}`;
+                loadingDetails.appendChild(stepDiv);
+                
+                // 保持最新的5個步驟
+                while (loadingDetails.children.length > 5) {
+                    loadingDetails.removeChild(loadingDetails.firstChild);
+                }
+                loadingDetails.scrollTop = loadingDetails.scrollHeight;
+            }
+            
+            // 舊的進度條相容性（如果存在）
+            const oldProgressBar = document.getElementById('v5-progress-bar');
+            const oldProgressText = document.getElementById('v5-progress-text');
+            const oldProgressPercent = document.getElementById('v5-progress-percent');
+            const oldProgressSteps = document.getElementById('v5-progress-steps');
+            
+            if (oldProgressBar) oldProgressBar.style.width = percent + '%';
+            if (oldProgressText) oldProgressText.textContent = text;
+            if (oldProgressPercent) oldProgressPercent.textContent = percent + '%';
+            if (step && oldProgressSteps) {
                 const stepDiv = document.createElement('div');
                 stepDiv.className = 'step';
                 stepDiv.textContent = `[${new Date().toLocaleTimeString()}] ${step}`;
-                progressSteps.appendChild(stepDiv);
-                
-                // 自動滾動到最新步驟
-                progressSteps.scrollTop = progressSteps.scrollHeight;
+                oldProgressSteps.appendChild(stepDiv);
+                oldProgressSteps.scrollTop = oldProgressSteps.scrollHeight;
             }
+        }
+        
+        // 後端載入狀態監控
+        function startBackendLoadingMonitor() {
+            const elapsedTimeEl = document.getElementById('elapsed-time');
+            const estimatedTimeEl = document.getElementById('estimated-time');
+            const currentFileEl = document.getElementById('current-file');
+            
+            let startTime = Date.now();
+            let hasShownBackendComplete = false;
+            
+            // 立即檢查一次，以防後端已經載入完成
+            checkBackendStatus();
+            
+            const monitor = setInterval(checkBackendStatus, 1000);
+            
+            async function checkBackendStatus() {
+                try {
+                    const response = await fetch('http://127.0.0.1:5001/api/loading-status');
+                    if (response.ok) {
+                        const status = await response.json();
+                        
+                        // 更新經過時間
+                        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                        if (elapsedTimeEl) elapsedTimeEl.textContent = `已用時間: ${elapsed}s`;
+                        
+                        // 更新預估時間
+                        if (status.estimated_time_remaining && estimatedTimeEl) {
+                            estimatedTimeEl.textContent = `預估剩餘: ${status.estimated_time_remaining}s`;
+                        } else if (estimatedTimeEl) {
+                            estimatedTimeEl.textContent = `預估剩餘: --`;
+                        }
+                        
+                        // 更新當前檔案
+                        if (status.current_file && currentFileEl) {
+                            currentFileEl.textContent = `正在處理: ${status.current_file}`;
+                        }
+                        
+                        // 更新進度
+                        if (status.progress !== undefined) {
+                            updateProgress(status.progress, status.current_step || '載入中...', status.current_file || '');
+                        }
+                        
+                        // 如果後端載入已完成
+                        if (!status.is_loading && !hasShownBackendComplete) {
+                            hasShownBackendComplete = true;
+                            updateProgress(100, '後端載入完成，開始前端初始化...', '準備載入前端模組');
+                            
+                            // 繼續前端載入流程，不立即隱藏載入覆蓋層
+                            console.log('後端載入完成，開始前端載入流程');
+                            // 不要清除 monitor，讓前端流程控制載入覆蓋層的隱藏
+                        }
+                        
+                        // 只有在前端也完成後才隱藏載入覆蓋層
+                        // 這個邏輯將在前端載入完成時處理
+                        
+                    } else {
+                        console.warn('無法獲取載入狀態');
+                        // 如果無法獲取狀態，假設載入完成並繼續前端流程
+                        if (!hasShownBackendComplete) {
+                            hasShownBackendComplete = true;
+                            updateProgress(50, '後端連接異常，繼續前端載入...', '準備載入前端模組');
+                        }
+                    }
+                } catch (error) {
+                    console.log('後端載入狀態監控錯誤:', error);
+                    // 如果連接失敗，假設載入完成並繼續前端流程
+                    if (!hasShownBackendComplete) {
+                        hasShownBackendComplete = true;
+                        updateProgress(50, '後端連接失敗，繼續前端載入...', '準備載入前端模組');
+                    }
+                }
+            }
+            
+            // 返回監控控制器，讓前端載入完成時可以停止監控
+            return {
+                stop: () => clearInterval(monitor),
+                isBackendComplete: () => hasShownBackendComplete
+            };
         }
 
         // 檢查後端API狀態
@@ -268,7 +446,7 @@
             
             try {
                 // 嘗試連接健康檢查端點
-                const response = await fetch('/api/health', {
+                const response = await fetch('http://127.0.0.1:5001/api/health', {
                     method: 'GET',
                     signal: AbortSignal.timeout(5000)
                 });
@@ -295,10 +473,10 @@
             
             return new Promise((resolve, reject) => {
                 const cdnList = [
-                    // v5.0.0 優先使用
+                    // 🚀 v5升級：優先載入Lightweight Charts v5
                     'https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js',
                     'https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js',
-                    // v4.1.3 作為回退
+                    // v4.1.3作為備選（向下兼容）
                     'https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js',
                     'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js'
                 ];
@@ -380,39 +558,7 @@
         }
         
         // 載入多個腳本的輔助函數
-        function loadModules(modules, callback) {
-            console.log(`開始載入 ${modules.length} 個模組`);
-            let loaded = 0;
-            
-            if (modules.length === 0) {
-                console.log('沒有模組需要載入');
-                callback();
-                return;
-            }
-            
-            modules.forEach(module => {
-                console.log(`正在載入模組: ${module}`);
-                const script = document.createElement('script');
-                script.src = module;
-                script.onload = () => {
-                    loaded++;
-                    const progress = 70 + (loaded / modules.length) * 15; // 70-85%
-                    updateProgress(progress, `載入模組 (${loaded}/${modules.length})`, `${module}`);
-                    console.log(`模組載入成功 (${loaded}/${modules.length}): ${module}`);
-                    
-                    if (loaded === modules.length) {
-                        console.log('所有模組載入完成，執行回調');
-                        callback();
-                    }
-                };
-                script.onerror = (error) => {
-                    console.error(`模組載入失敗: ${module}`, error);
-                    updateProgress(70 + (loaded / modules.length) * 15, `模組載入失敗: ${module}`, `${module} 載入失敗`);
-                    alert(`系統模組載入失敗: ${module}`);
-                };
-                document.head.appendChild(script);
-            });
-        }
+        // 舊的 loadModules 函數已被優化的並行載入系統取代
 
         // 主要啟動流程
         async function startSystem() {
@@ -436,134 +582,556 @@
             }
         }
 
-        // 載入完成後初始化
-        startSystem()
-            .then((version) => {
-                console.log('Lightweight Charts 版本確認:', version);
+        // 單個腳本載入函數
+        function loadScript(src) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = () => {
+                    console.log(`載入成功: ${src}`);
+                    resolve();
+                };
+                script.onerror = (error) => {
+                    console.error(`載入失敗: ${src}`, error);
+                    reject(new Error(`Script load failed: ${src}`));
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        // 並行載入多個模組的優化函數
+        function loadModulesInParallel(version) {
+            return new Promise((resolve, reject) => {
+                console.log('開始並行載入模組策略...');
                 
-                // 先載入聚合器
-                const aggregatorScript = document.createElement('script');
-                aggregatorScript.src = 'candleAggregator.js';
+                // 階段1：關鍵依賴模組（必須按順序）
+                const criticalModules = [
+                    'timestamp-utils.js',     // 時間戳工具 - 最優先載入
+                    'data-validator.js',      // 數據驗證器 - 第二優先
+                    'error-monitor.js',       // 錯誤監控器 - 第三優先
+                    'candleAggregator.js',
+                    'config.js'
+                ];
                 
-                aggregatorScript.onload = () => {
-                    console.log('CandleAggregator 載入成功');
-                    updateProgress(60, '載入核心模組...', 'CandleAggregator 載入完成');
-                    console.log('開始載入其他模組...');
-                    
-                    // 根據版本載入不同的模組
-                    let modules = ['config.js'];
-                    
-                    if (version.startsWith('v5')) {
-                        console.log('載入 v5 專用模組');
-                        modules.push('fvg-renderer-v5.js');
-                        updateProgress(65, '準備 v5 FVG 渲染器...', '使用 v5 專用渲染器');
-                    } else {
-                        console.log('載入 v4 兼容模組');
-                        modules.push('fvg-custom-series.js', 'fvg-renderer.js');
-                        updateProgress(65, '準備 v4 兼容渲染器...', '使用 v4 兼容模式');
-                    }
-                    
-                    modules.push('chart-manager.js', 'data-manager.js', 'playback-manager.js', 'event-manager.js');
-                    
-                    // v5測試版加載測試腳本
-                    if (version.startsWith('v5')) {
-                        modules.push('test-fvg-v5.js');
-                    }
-                    
-                    console.log('要載入的模組:', modules);
-                    updateProgress(70, '載入管理器模組...', `載入 ${modules.length} 個模組`);
-                    
-                    loadModules(modules, () => {
-                        console.log('所有模組載入完成，開始載入主程式 script-v2.js');
-                        updateProgress(85, '載入主程式...', '所有模組載入完成');
+                // 階段2：核心管理器模組（可並行）
+                const coreModules = [
+                    'chart-manager.js',
+                    'data-manager.js'
+                ];
+                
+                // 階段3：輔助模組（可並行）
+                const auxiliaryModules = [
+                    'playback-manager.js',
+                    'event-manager.js'
+                ];
+                
+                // 階段4：FVG渲染器（階段性測試）
+                const fvgRenderers = [
+                    'fvg-renderer-ultra-minimal.js', // 超級簡化渲染器（階段性測試）
+                    'fvg-renderer-fixed.js',         // 修復渲染器（時間範圍修復）
+                    'fvg-renderer-minimal.js',       // 極簡渲染器（無圖形測試）
+                    'fvg-renderer-safe.js',          // 安全渲染器（調試無限迴圈）
+                    'fvg-renderer-optimized.js',     // 高性能優化渲染器（PriceLine版本）
+                    'fvg-renderer-multiline.js'      // 多線條渲染器（備用）
+                ];
+                
+                let currentStage = 1;
+                const totalStages = 4;
+                
+                // 階段1：載入關鍵依賴（序列載入）
+                console.log('階段1: 載入關鍵依賴模組...');
+                updateProgress(55, '載入關鍵依賴...', '載入 CandleAggregator 和 Config');
+                
+                loadModulesSequentially(criticalModules)
+                    .then(() => {
+                        console.log('階段1完成，開始階段2: 並行載入核心模組...');
+                        currentStage = 2;
+                        updateProgress(65, '並行載入核心模組...', '載入 Chart 和 Data 管理器');
                         
-                        // 最後載入主程式
-                        const script = document.createElement('script');
-                        script.src = 'script-v2.js';
-                        script.onload = () => {
-                            console.log('script-v2.js 載入成功');
-                            updateProgress(95, '初始化系統...', '主程式載入完成');
-                            
-                            // 監聽JavaScript錯誤
-                            window.addEventListener('error', (event) => {
-                                console.error('JavaScript錯誤:', event.error);
-                                updateProgress(95, '系統初始化錯誤', `錯誤: ${event.error.message}`);
-                            });
-                            
-                            window.addEventListener('unhandledrejection', (event) => {
-                                console.error('Promise錯誤:', event.reason);
-                                updateProgress(95, '系統初始化錯誤', `Promise錯誤: ${event.reason}`);
-                            });
-                            
-                            // 詳細監控系統初始化
-                            let initCheckCount = 0;
-                            const maxChecks = 20; // 最多檢查20次 (10秒)
-                            
-                            const initChecker = setInterval(() => {
-                                initCheckCount++;
-                                
-                                console.log(`[初始化檢查 ${initCheckCount}/${maxChecks}] window.app:`, !!window.app);
-                                if (window.app) {
-                                    console.log('window.app.chart:', !!window.app.chart);
-                                    console.log('window.app.chartManager:', !!window.app.chartManager);
-                                    console.log('window.app.error:', window.app.error);
-                                    if (window.app.error) {
-                                        console.log('window.app.errorMessage:', window.app.errorMessage);
-                                    }
-                                }
-                                
-                                if (window.app && window.app.chart && !window.app.error) {
-                                    // 成功初始化
-                                    clearInterval(initChecker);
-                                    const chartVersion = version;
-                                    document.getElementById('chart-version').textContent = `圖表: ${chartVersion}`;
-                                    updateProgress(100, '系統就緒！', '交易圖表系統啟動完成');
-                                    
-                                    // 隱藏進度條
-                                    setTimeout(() => {
-                                        const v5Loading = document.getElementById('v5-loading');
-                                        if (v5Loading) {
-                                            v5Loading.style.display = 'none';
-                                        }
-                                    }, 2000);
-                                    
-                                } else if (window.app && window.app.error) {
-                                    // 初始化失敗，但有錯誤信息
-                                    clearInterval(initChecker);
-                                    updateProgress(90, '系統初始化失敗', `錯誤: ${window.app.errorMessage}`);
-                                    console.error('系統初始化失敗:', window.app.errorMessage);
-                                    
-                                } else if (initCheckCount >= maxChecks) {
-                                    // 超時失敗
-                                    clearInterval(initChecker);
-                                    updateProgress(90, '系統初始化超時', '請檢查控制台錯誤訊息');
-                                    console.error('系統初始化超時 - 請檢查是否有JavaScript錯誤');
-                                    
-                                } else {
-                                    // 更新等待狀態
-                                    const waitMsg = `等待系統初始化 (${initCheckCount}/${maxChecks})`;
-                                    updateProgress(90 + (initCheckCount / maxChecks) * 8, waitMsg, `檢查應用程式物件...`);
-                                }
-                            }, 500); // 每500ms檢查一次
-                        };
-                        script.onerror = (error) => {
-                            console.error('script-v2.js 載入失敗:', error);
-                        };
-                        document.head.appendChild(script);
+                        // 階段2：並行載入核心模組
+                        return Promise.all(coreModules.map(module => loadScript(module)));
+                    })
+                    .then(() => {
+                        console.log('階段2完成，開始階段3: 並行載入輔助模組...');
+                        currentStage = 3;
+                        updateProgress(75, '並行載入輔助模組...', '載入 Playback 和 Event 管理器');
+                        
+                        // 階段3：並行載入輔助模組
+                        return Promise.all(auxiliaryModules.map(module => loadScript(module)));
+                    })
+                    .then(() => {
+                        console.log('階段3完成，開始階段4: 載入FVG渲染器...');
+                        currentStage = 4;
+                        updateProgress(80, '載入FVG渲染器...', '載入簡單和多線條渲染器');
+                        
+                        // 階段4：載入FVG渲染器（簡單+多線條版本）
+                        return Promise.all(fvgRenderers.map(renderer => loadScript(renderer)));
+                    })
+                    .then(() => {
+                        console.log('所有模組載入完成！');
+                        updateProgress(82, '模組載入完成', '所有核心模組載入成功');
+                        resolve();
+                    })
+                    .catch(error => {
+                        console.error('模組載入失敗:', error);
+                        updateProgress(60, '模組載入失敗', `錯誤: ${error.message}`);
+                        reject(error);
                     });
-                };
+            });
+        }
+
+        // 序列載入模組函數
+        function loadModulesSequentially(modules) {
+            return modules.reduce((promise, module) => {
+                return promise.then(() => loadScript(module));
+            }, Promise.resolve());
+        }
+
+        // 立即啟動，不等待DOM載入（腳本在body末尾，DOM已經存在）
+        console.log('開始系統初始化');
+        
+        // 全域變數來存儲 backendMonitor
+        let globalBackendMonitor = null;
+        
+        // 立即檢查後端狀態並顯示進度
+        async function initializeSystem() {
+            try {
+                const response = await fetch('http://127.0.0.1:5001/api/loading-status');
+                if (response.ok) {
+                    const status = await response.json();
+                    console.log('後端狀態:', status);
+                    
+                    if (!status.is_loading) {
+                        // 後端已完成，直接顯示完成狀態
+                        updateProgress(100, '後端載入完成，開始前端初始化...', '開始載入前端模組');
+                        console.log('後端已完成載入，開始前端流程');
+                    } else {
+                        // 後端還在載入，啟動監控
+                        updateProgress(status.progress, status.current_step, status.current_file);
+                    }
+                } else {
+                    console.warn('無法連接後端，繼續前端載入');
+                    updateProgress(50, '後端連接異常，繼續前端載入...', '準備載入前端模組');
+                }
+            } catch (error) {
+                console.log('後端檢查失敗，繼續前端載入:', error);
+                updateProgress(50, '後端檢查失敗，繼續前端載入...', '準備載入前端模組');
+            }
+            
+            // 啟動後端載入監控（如果需要）
+            globalBackendMonitor = startBackendLoadingMonitor();
+            
+            // 優化版並行載入系統
+            return startSystem();
+        }
+        
+        // 啟動系統初始化
+        initializeSystem().then((detectedVersion) => {
+            console.log('Lightweight Charts 版本確認:', detectedVersion);
+            updateProgress(50, '開始並行載入模組...', '準備載入核心模組');
+            
+            // 並行載入策略：關鍵模組並行載入
+            return loadModulesInParallel(detectedVersion).then(() => detectedVersion);
+        }).then((version) => {
+                console.log('所有模組載入完成，開始載入主程式');
+                updateProgress(85, '載入主程式...', '所有模組載入完成');
                 
-                aggregatorScript.onerror = () => {
-                    console.error('CandleAggregator 載入失敗');
-                    alert('系統載入失敗，請重新整理頁面。');
-                };
+                // 最後載入主程式
+                return loadScript('script-v2.js').then(() => version);
+            })
+            .then((version) => {
+                console.log('script-v2.js 載入成功');
+                updateProgress(95, '初始化系統...', '主程式載入完成');
                 
-                document.head.appendChild(aggregatorScript);
+                // 監聽JavaScript錯誤
+                window.addEventListener('error', (event) => {
+                    console.error('JavaScript錯誤:', event.error);
+                    const errorMessage = event.error && event.error.message ? event.error.message : '未知錯誤';
+                    updateProgress(95, '系統初始化錯誤', `錯誤: ${errorMessage}`);
+                });
+                
+                window.addEventListener('unhandledrejection', (event) => {
+                    console.error('Promise錯誤:', event.reason);
+                    updateProgress(95, '系統初始化錯誤', `Promise錯誤: ${event.reason}`);
+                });
+                
+                // 詳細監控系統初始化
+                let initCheckCount = 0;
+                const maxChecks = 20; // 最多檢查20次 (10秒)
+                
+                const initChecker = setInterval(() => {
+                    initCheckCount++;
+                    
+                    console.log(`[初始化檢查 ${initCheckCount}/${maxChecks}] window.app:`, !!window.app);
+                    if (window.app) {
+                        console.log('window.app.chart:', !!window.app.chart);
+                        console.log('window.app.chartManager:', !!window.app.chartManager);
+                        console.log('window.app.error:', window.app.error);
+                        if (window.app.error) {
+                            console.log('window.app.errorMessage:', window.app.errorMessage);
+                        }
+                    }
+                    
+                    if (window.app && window.app.chart && !window.app.error) {
+                        // 成功初始化
+                        clearInterval(initChecker);
+                        const chartVersion = version;
+                        document.getElementById('chart-version').textContent = `圖表: ${chartVersion}`;
+                        updateProgress(100, '系統就緒！', '交易圖表系統啟動完成');
+                        
+                        // 初始化FVG多線條渲染器控制項目
+                        initializeFVGControls();
+                        
+                        // 停止後端監控並隱藏載入覆蓋層
+                        if (globalBackendMonitor) {
+                            globalBackendMonitor.stop();
+                        }
+                        setTimeout(() => {
+                            const loadingOverlay = document.getElementById('loading-overlay');
+                            if (loadingOverlay) {
+                                loadingOverlay.style.opacity = '0';
+                                setTimeout(() => {
+                                    loadingOverlay.style.display = 'none';
+                                }, 500);
+                            }
+                            // 舊的進度條也隱藏
+                            const v5Loading = document.getElementById('v5-loading');
+                            if (v5Loading) {
+                                v5Loading.style.display = 'none';
+                            }
+                        }, 2000);
+                        
+                    } else if (window.app && window.app.error) {
+                        // 初始化失敗，但有錯誤信息
+                        clearInterval(initChecker);
+                        updateProgress(90, '系統初始化失敗', `錯誤: ${window.app.errorMessage}`);
+                        console.error('系統初始化失敗:', window.app.errorMessage);
+                        
+                    } else if (initCheckCount >= maxChecks) {
+                        // 超時失敗
+                        clearInterval(initChecker);
+                        updateProgress(90, '系統初始化超時', '請檢查控制台錯誤訊息');
+                        console.error('系統初始化超時 - 請檢查是否有JavaScript錯誤');
+                        
+                    } else {
+                        // 更新等待狀態
+                        const waitMsg = `等待系統初始化 (${initCheckCount}/${maxChecks})`;
+                        updateProgress(90 + (initCheckCount / maxChecks) * 8, waitMsg, `檢查應用程式物件...`);
+                    }
+                }, 500); // 每500ms檢查一次
             })
             .catch(error => {
                 console.error('圖表庫載入失敗:', error);
                 alert('圖表庫載入失敗，請檢查網路連線或嘗試重新整理頁面。');
             });
+            
+        // CandleAggregator腳本初始化部分
+        const aggregatorScript = document.createElement('script');
+        aggregatorScript.src = 'candleAggregator.js';
+        aggregatorScript.onload = () => {
+            console.log('CandleAggregator 載入完成');
+        };
+        
+        aggregatorScript.onerror = () => {
+            console.error('CandleAggregator 載入失敗');
+            alert('系統載入失敗，請重新整理頁面。');
+        };
+        
+        document.head.appendChild(aggregatorScript);
+            
+        // ========== FVG 多線條渲染器控制項目初始化 ==========
+        
+        function initializeFVGControls() {
+            console.log('🎛️ 初始化FVG控制項目');
+            
+            try {
+                // 獲取控制項目元素
+                const fvgCheckbox = document.getElementById('fvg-checkbox');
+                const fvgMarkersCheckbox = document.getElementById('fvg-markers-checkbox');
+                const fvgClearedCheckbox = document.getElementById('fvg-cleared-checkbox');
+                const fvgPerformanceMode = document.getElementById('fvg-performance-mode');
+                const fvgPrimitivesCount = document.getElementById('fvg-primitives-count');
+                const fvgMarkersCount = document.getElementById('fvg-markers-count');
+                
+                // 檢查必要元素是否存在
+                if (!fvgCheckbox) {
+                    console.error('❌ 主要FVG控制項目未找到');
+                    return;
+                }
+                
+                // 設置初始狀態
+                const config = window.CONFIG?.FVG || {};
+                if (fvgMarkersCheckbox) fvgMarkersCheckbox.checked = config.DEFAULT_SHOW_MARKERS || false;
+                if (fvgClearedCheckbox) fvgClearedCheckbox.checked = config.DEFAULT_SHOW_CLEARED || false;
+                
+                // 主要FVG開關事件
+                fvgCheckbox.addEventListener('change', function(e) {
+                    console.log(`🎛️ FVG顯示: ${e.target.checked ? '開啟' : '關閉'}`);
+                    
+                    if (window.app?.chartManager?.fvgRenderer) {
+                        window.app.chartManager.fvgRenderer.toggle();
+                        if (window.app.dataManager?.currentData?.fvgs) {
+                            window.app.chartManager.fvgRenderer.render(
+                                window.app.dataManager.currentData.fvgs,
+                                window.app.dataManager.currentTimeframe
+                            );
+                        }
+                        updateFVGStats();
+                    }
+                });
+                
+                // FVG標記開關事件
+                if (fvgMarkersCheckbox) {
+                    fvgMarkersCheckbox.addEventListener('change', function(e) {
+                        console.log(`🏷️ FVG標記: ${e.target.checked ? '開啟' : '關閉'}`);
+                        
+                        if (window.app?.chartManager?.fvgRenderer) {
+                            window.app.chartManager.fvgRenderer.toggleMarkers();
+                            if (window.app.dataManager?.currentData?.fvgs) {
+                                window.app.chartManager.fvgRenderer.render(
+                                    window.app.dataManager.currentData.fvgs,
+                                    window.app.dataManager.currentTimeframe
+                                );
+                            }
+                            updateFVGStats();
+                        }
+                    });
+                }
+                
+                // 已清除FVG開關事件
+                if (fvgClearedCheckbox) {
+                    fvgClearedCheckbox.addEventListener('change', function(e) {
+                        console.log(`👻 已清除FVG: ${e.target.checked ? '開啟' : '關閉'}`);
+                        
+                        if (window.app?.chartManager?.fvgRenderer) {
+                            window.app.chartManager.fvgRenderer.toggleClearedFVGs();
+                            if (window.app.dataManager?.currentData?.fvgs) {
+                                window.app.chartManager.fvgRenderer.render(
+                                    window.app.dataManager.currentData.fvgs,
+                                    window.app.dataManager.currentTimeframe
+                                );
+                            }
+                            updateFVGStats();
+                        }
+                    });
+                }
+                
+                // 性能模式選擇事件
+                if (fvgPerformanceMode) {
+                    fvgPerformanceMode.addEventListener('change', function(e) {
+                        const mode = e.target.value;
+                        console.log(`⚙️ FVG性能模式: ${mode}`);
+                        
+                        if (window.app?.chartManager?.fvgRenderer) {
+                            const modes = { 
+                                high: 130, 
+                                balanced: 60, 
+                                performance: 20 
+                            };
+                            
+                            window.app.chartManager.fvgRenderer.setMaxLines(modes[mode]);
+                            
+                            // 重新渲染以應用新設置
+                            if (window.app.dataManager?.currentData?.fvgs) {
+                                window.app.chartManager.fvgRenderer.render(
+                                    window.app.dataManager.currentData.fvgs,
+                                    window.app.dataManager.currentTimeframe
+                                );
+                            }
+                            updateFVGStats();
+                        }
+                    });
+                }
+                
+                // 更新統計信息函數
+                function updateFVGStats() {
+                    if (window.app?.chartManager?.fvgRenderer && fvgPrimitivesCount && fvgMarkersCount) {
+                        const stats = window.app.chartManager.fvgRenderer.getStats();
+                        fvgPrimitivesCount.textContent = stats.totalPrimitives || '0';
+                        fvgMarkersCount.textContent = stats.totalMarkers || '0';
+                    }
+                }
+                
+                // 定時更新統計信息
+                setInterval(updateFVGStats, 2000);
+                
+                // 初始統計更新
+                setTimeout(updateFVGStats, 1000);
+                
+                console.log('✅ FVG控制項目初始化完成');
+                
+            } catch (error) {
+                console.error('❌ FVG控制項目初始化失敗:', error);
+            }
+        }
+        
+        // ========== 輔助函數 ==========
+        
+        // 刷新FVG顯示
+        function refreshFVGDisplay() {
+            if (window.app?.chartManager?.fvgRenderer && window.app.dataManager?.currentData?.fvgs) {
+                console.log('🔄 刷新FVG顯示');
+                window.app.chartManager.fvgRenderer.render(
+                    window.app.dataManager.currentData.fvgs,
+                    window.app.dataManager.currentTimeframe
+                );
+            }
+        }
+        
+        // 暴露到全域以供調試
+        window.refreshFVGDisplay = refreshFVGDisplay;
+        
+        // ========== FVG完整診斷系統 ==========
+        
+        window.runFullFVGDiagnostics = function() {
+            console.group('🔍 FVG系統完整診斷');
+            
+            console.log('📊 第1步: 系統架構檢查');
+            console.log('   - chartManager存在:', !!window.app?.chartManager);
+            console.log('   - dataManager存在:', !!window.app?.dataManager);
+            console.log('   - FVGRendererMultiline類可用:', typeof window.FVGRendererMultiline);
+            
+            if (window.app?.chartManager) {
+                const chartManager = window.app.chartManager;
+                console.log('   - FVG渲染器已初始化:', !!chartManager.fvgRenderer);
+                console.log('   - 渲染器類型:', chartManager.fvgRenderer?.constructor.name);
+                console.log('   - 使用多線條渲染器:', chartManager.isUsingMultilineRenderer?.() || false);
+            }
+            
+            console.log('📊 第2步: 數據狀態檢查');
+            
+            // 檢查多個可能的數據源
+            let data = window.app?.dataManager?.currentData || window.currentData;
+            console.log('   - dataManager.currentData存在:', !!window.app?.dataManager?.currentData);
+            console.log('   - window.currentData存在:', !!window.currentData);
+            
+            if (data) {
+                console.log('   - 當前數據存在:', !!data);
+                console.log('   - 日期:', data.date);
+                console.log('   - K線數據:', data.data ? data.data.length + '根' : '無');
+                console.log('   - FVG數據:', data.fvgs ? data.fvgs.length + '個' : '無');
+                
+                if (data.fvgs && data.fvgs.length > 0) {
+                    const valid = data.fvgs.filter(f => f.status === 'valid');
+                    const cleared = data.fvgs.filter(f => f.status === 'cleared');
+                    console.log('   - 有效FVG:', valid.length + '個');
+                    console.log('   - 已清除FVG:', cleared.length + '個');
+                    
+                    const sample = data.fvgs[0];
+                    console.log('   - 樣本FVG完整性:');
+                    console.log('     * type:', sample.type);
+                    console.log('     * status:', sample.status);
+                    console.log('     * topPrice:', sample.topPrice);
+                    console.log('     * bottomPrice:', sample.bottomPrice);
+                    console.log('     * startTime:', sample.startTime);
+                    console.log('     * endTime:', sample.endTime);
+                } else {
+                    console.warn('❌ 沒有FVG數據');
+                }
+            } else {
+                console.warn('❌ 沒有當前數據');
+            }
+            
+            console.log('📊 第3步: 控制項狀態檢查');
+            const fvgCheckbox = document.getElementById('fvg-checkbox');
+            const fvgClearedCheckbox = document.getElementById('fvg-cleared-checkbox');
+            const fvgMarkersCheckbox = document.getElementById('fvg-markers-checkbox');
+            
+            console.log('   - 主FVG複選框:', fvgCheckbox ? (fvgCheckbox.checked ? '✅已勾選' : '❌未勾選') : '❌不存在');
+            console.log('   - 已清除FVG複選框:', fvgClearedCheckbox ? (fvgClearedCheckbox.checked ? '✅已勾選' : '❌未勾選') : '❌不存在');
+            console.log('   - FVG標記複選框:', fvgMarkersCheckbox ? (fvgMarkersCheckbox.checked ? '✅已勾選' : '❌未勾選') : '❌不存在');
+            
+            console.log('📊 第4步: 渲染器詳細診斷');
+            if (window.app?.chartManager?.fvgRenderer && typeof window.diagnoseFVGRenderer === 'function') {
+                console.log('   - 運行渲染器內部診斷...');
+                const rendererDiag = window.diagnoseFVGRenderer();
+                console.log('   - 渲染器診斷結果:', rendererDiag);
+            } else {
+                console.warn('   - 渲染器診斷不可用');
+            }
+            
+            console.log('📊 第5步: 手動渲染測試');
+            if (window.app?.chartManager?.fvgRenderer && window.app?.dataManager?.currentData?.fvgs) {
+                console.log('   - 嘗試手動觸發FVG渲染...');
+                try {
+                    window.app.chartManager.fvgRenderer.render(
+                        window.app.dataManager.currentData.fvgs, 
+                        window.app.dataManager.currentTimeframe || 'M15'
+                    );
+                    console.log('   ✅ 手動渲染命令已執行');
+                } catch (e) {
+                    console.error('   ❌ 手動渲染失敗:', e);
+                }
+            }
+            
+            console.log('📊 診斷建議:');
+            const suggestions = [];
+            
+            if (!window.app?.chartManager?.fvgRenderer) {
+                suggestions.push('重新載入頁面以初始化FVG渲染器');
+            }
+            if (!window.app?.dataManager?.currentData?.fvgs) {
+                suggestions.push('點擊"隨機日期"按鈕載入包含FVG的數據');
+            }
+            if (!fvgCheckbox?.checked) {
+                suggestions.push('勾選左側面板的"Fair Value Gap (FVG)"複選框');
+            }
+            if (!fvgClearedCheckbox?.checked) {
+                suggestions.push('勾選"顯示已清除FVG"以查看更多FVG');
+            }
+            
+            if (suggestions.length === 0) {
+                console.log('   ✅ 系統狀態看起來正常，FVG應該可以正常顯示');
+                console.log('   📌 如果仍看不到FVG，請檢查圖表縮放級別或時間範圍');
+            } else {
+                suggestions.forEach((suggestion, index) => {
+                    console.log(`   ${index + 1}. ${suggestion}`);
+                });
+            }
+            
+            console.groupEnd();
+        };
+        
+        // 快速FVG狀態檢查函數
+        window.quickFVGCheck = function() {
+            console.log('🚀 快速FVG狀態檢查:');
+            console.log('   渲染器:', !!window.app?.chartManager?.fvgRenderer ? '✅' : '❌');
+            console.log('   數據:', !!window.app?.dataManager?.currentData?.fvgs ? '✅' : '❌');
+            console.log('   本地數據:', !!window.currentData?.fvgs ? '✅' : '❌');
+            console.log('   複選框:', !!document.getElementById('fvg-checkbox')?.checked ? '✅' : '❌');
+            console.log('   圖元數量:', window.app?.chartManager?.fvgRenderer?.fvgPrimitives?.length || 0);
+        };
+        
+        // 手動載入測試數據函數
+        window.testLoadRandomData = async function() {
+            console.log('🧪 手動載入測試數據...');
+            try {
+                const refreshBtn = document.getElementById('refresh-btn');
+                if (refreshBtn) {
+                    console.log('   點擊隨機日期按鈕...');
+                    refreshBtn.click();
+                    
+                    // 等待3秒後檢查結果
+                    setTimeout(() => {
+                        console.log('📊 載入結果檢查:');
+                        console.log('   全域currentData:', !!window.currentData);
+                        console.log('   FVG數據:', window.currentData?.fvgs?.length || 0);
+                        if (window.currentData?.fvgs) {
+                            const valid = window.currentData.fvgs.filter(f => f.status === 'valid');
+                            const cleared = window.currentData.fvgs.filter(f => f.status === 'cleared');
+                            console.log('   有效FVG:', valid.length);
+                            console.log('   已清除FVG:', cleared.length);
+                        }
+                        console.log('   圖元數量:', window.app?.chartManager?.fvgRenderer?.fvgPrimitives?.length || 0);
+                    }, 3000);
+                } else {
+                    console.error('❌ 找不到刷新按鈕');
+                }
+            } catch (e) {
+                console.error('❌ 測試載入失敗:', e);
+            }
+        };
+        
     </script>
 </body>
 </html>

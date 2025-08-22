@@ -126,11 +126,9 @@ class AreaRenderer extends BaseRenderer {
                 const lineValue = bot + (step * i);
                 const opacity = style.opacity || 0.3;
                 
-                const lineSeries = this.chart.addLineSeries({
+                const lineSeries = this.chart.addSeries(LightweightCharts.LineSeries, {
                     color: this.hexToRgba(style.color, opacity),
                     lineWidth: 1,
-                    priceLineVisible: false,
-                    lastValueVisible: false,
                     crosshairMarkerVisible: false
                 });
                 
@@ -182,11 +180,9 @@ class LineRenderer extends BaseRenderer {
             lineWidth: 2
         };
         
-        const lineSeries = this.chart.addLineSeries({
+        const lineSeries = this.chart.addSeries(LightweightCharts.LineSeries, {
             color: style.color,
             lineWidth: style.lineWidth || 2,
-            priceLineVisible: false,
-            lastValueVisible: true,
             crosshairMarkerVisible: true
         });
         

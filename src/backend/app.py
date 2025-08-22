@@ -25,7 +25,12 @@ loading_status = {
     'current_step': '準備載入資料...',
     'total_steps': 6,
     'completed_steps': 0,
-    'error': None
+    'current_file': '',
+    'current_file_progress': 0,
+    'error': None,
+    'estimated_time_remaining': None,
+    'start_time': None,
+    'details': []
 }
 
 # API健康檢查端點
@@ -42,11 +47,38 @@ def health_check():
         'timestamp': str(__import__('datetime').datetime.now())
     }), 200
 
+@app.route('/api/loading-status', methods=['GET'])
+def get_loading_status():
+    """獲取詳細載入狀態"""
+    status = loading_status.copy()
+    
+    # 計算預估剩餘時間
+    if status['start_time'] and status['progress'] > 0:
+        import datetime
+        elapsed = (datetime.datetime.now() - status['start_time']).total_seconds()
+        if status['progress'] > 5:  # 避免除零錯誤
+            estimated_total = elapsed / (status['progress'] / 100)
+            remaining = max(0, estimated_total - elapsed)
+            status['estimated_time_remaining'] = int(remaining)
+    
+    return jsonify(status), 200
+
 @app.route('/')
 def index():
     """主頁面"""
     frontend_dir = os.path.join(PROJECT_ROOT, 'src', 'frontend')
     return send_from_directory(frontend_dir, 'index-v2.html')
+
+@app.route('/debug')
+def debug_loading():
+    """載入調試頁面"""
+    return send_from_directory(PROJECT_ROOT, 'debug_loading.html')
+
+@app.route('/simple')
+def simple_index():
+    """簡化版主頁面"""
+    frontend_dir = os.path.join(PROJECT_ROOT, 'src', 'frontend')
+    return send_from_directory(frontend_dir, 'index-simple.html')
 
 @app.route('/<path:filename>')
 def static_files(filename):
@@ -58,6 +90,8 @@ def static_files(filename):
 def get_random_data():
     """取得隨機日期的開盤前資料"""
     try:
+        import numpy as np
+        
         # 取得時間刻度參數（預設為 H4）
         timeframe = request.args.get('timeframe', 'M15')
         
@@ -77,9 +111,27 @@ def get_random_data():
         if data is None:
             return jsonify({'error': '無法取得資料'}), 500
         
-        return jsonify(data)
+        # 確保所有數據都是JSON可序列化的
+        def convert_to_serializable(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {k: convert_to_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_serializable(v) for v in obj]
+            return obj
+        
+        serializable_data = convert_to_serializable(data)
+        return jsonify(serializable_data)
     
     except Exception as e:
+        import traceback
+        print(f"API錯誤: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/data/<date>/<timeframe>')
@@ -87,6 +139,9 @@ def get_specific_data(date, timeframe):
     """取得指定日期和時間刻度的資料"""
     try:
         from datetime import datetime
+        import json
+        import numpy as np
+        
         target_date = datetime.strptime(date, '%Y-%m-%d').date()
         
         data = data_processor.get_pre_market_data(target_date, timeframe)
@@ -94,9 +149,27 @@ def get_specific_data(date, timeframe):
         if data is None:
             return jsonify({'error': '無法取得指定資料'}), 404
         
-        return jsonify(data)
+        # 確保所有數據都是JSON可序列化的
+        def convert_to_serializable(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {k: convert_to_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_serializable(v) for v in obj]
+            return obj
+        
+        serializable_data = convert_to_serializable(data)
+        return jsonify(serializable_data)
     
     except Exception as e:
+        import traceback
+        print(f"API錯誤: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/timeframes')
@@ -104,11 +177,35 @@ def get_timeframes():
     """取得可用的時間刻度"""
     return jsonify(data_processor.get_available_timeframes())
 
+@app.route('/api/date-range')
+def get_date_range():
+    """取得可用日期範圍詳細信息"""
+    try:
+        if not data_processor.available_dates:
+            return jsonify({'error': '數據未載入'}), 500
+        
+        dates_list = sorted(list(data_processor.available_dates))
+        from utils.config import RANDOM_DATE_CONFIG
+        
+        return jsonify({
+            'min_date': str(dates_list[0]),
+            'max_date': str(dates_list[-1]),
+            'total_days': len(dates_list),
+            'sample_dates': [str(d) for d in dates_list[:10]],
+            'recent_dates': [str(d) for d in dates_list[-10:]],
+            'config': RANDOM_DATE_CONFIG,
+            'note': 'D1數據缺少255天週末和節假日，M1/M5使用優化載入模式'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/playback-data/<date>/<timeframe>')
 def get_playback_data(date, timeframe):
     """取得指定日期的完整交易資料（用於播放）"""
     try:
         from datetime import datetime
+        import numpy as np
+        
         target_date = datetime.strptime(date, '%Y-%m-%d').date()
         
         data = data_processor.get_market_hours_data(target_date, timeframe)
@@ -116,9 +213,27 @@ def get_playback_data(date, timeframe):
         if data is None:
             return jsonify({'error': '無法取得播放資料'}), 404
         
-        return jsonify(data)
+        # 確保所有數據都是JSON可序列化的
+        def convert_to_serializable(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {k: convert_to_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_serializable(v) for v in obj]
+            return obj
+        
+        serializable_data = convert_to_serializable(data)
+        return jsonify(serializable_data)
     
     except Exception as e:
+        import traceback
+        print(f"API錯誤: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
     
 @app.route('/api/m1-playback-data/<date>')
@@ -126,6 +241,8 @@ def get_m1_playback_data(date):
     """取得指定日期的 M1 完整交易資料（作為播放基礎）"""
     try:
         from datetime import datetime
+        import numpy as np
+        
         target_date = datetime.strptime(date, '%Y-%m-%d').date()
         
         # 強制使用 M1 資料
@@ -134,9 +251,27 @@ def get_m1_playback_data(date):
         if data is None:
             return jsonify({'error': '無法取得 M1 播放資料'}), 404
         
-        return jsonify(data)
+        # 確保所有數據都是JSON可序列化的
+        def convert_to_serializable(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {k: convert_to_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_serializable(v) for v in obj]
+            return obj
+        
+        serializable_data = convert_to_serializable(data)
+        return jsonify(serializable_data)
     
     except Exception as e:
+        import traceback
+        print(f"API錯誤: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/continuity-summary')
@@ -171,42 +306,44 @@ def get_date_continuity(date, timeframe):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/loading-status')
-def get_loading_status():
-    """取得載入狀態"""
-    return jsonify(loading_status)
+@app.route('/api/clear-cache')
+def clear_cache():
+    """清除API響應緩存"""
+    try:
+        data_processor._response_cache.clear()
+        data_processor._processed_data_cache.clear()
+        return jsonify({'message': 'Cache cleared successfully', 'status': 'success'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-def update_loading_status(step, progress, current_step):
+
+def update_loading_status(**kwargs):
     """更新載入狀態"""
     global loading_status
-    loading_status.update({
-        'completed_steps': step,
-        'progress': progress,
-        'current_step': current_step
-    })
+    loading_status.update(kwargs)
 
 if __name__ == '__main__':
     print("=== 交易圖表系統啟動中 ===")
     
-    # 更新載入狀態
-    update_loading_status(0, 0, "開始載入資料...")
+    # 設置載入狀態回調
+    data_processor.set_loading_callback(update_loading_status)
     
     # 載入資料
     try:
         data_processor.load_all_data()
         # 載入完成
-        loading_status.update({
-            'is_loading': False,
-            'progress': 100,
-            'current_step': '載入完成',
-            'completed_steps': 6
-        })
+        update_loading_status(
+            is_loading=False,
+            progress=100,
+            current_step='載入完成',
+            completed_steps=6
+        )
     except Exception as e:
-        loading_status.update({
-            'is_loading': False,
-            'error': str(e),
-            'current_step': f'載入失敗: {str(e)}'
-        })
+        update_loading_status(
+            is_loading=False,
+            error=str(e),
+            current_step=f'載入失敗: {str(e)}'
+        )
     
     print(f"伺服器啟動於: http://{FLASK_HOST}:{FLASK_PORT}")
     print("請在瀏覽器開啟上述網址")

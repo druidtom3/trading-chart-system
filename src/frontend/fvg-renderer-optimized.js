@@ -1,0 +1,268 @@
+/**
+ * FVG Optimized Renderer - 基於參考專案的高性能實現
+ * 使用 createPriceLine 而不是大量 LineSeries
+ */
+
+class FVGRendererOptimized {
+    constructor(chart, candlestickSeries) {
+        this.chart = chart;
+        this.candlestickSeries = candlestickSeries;
+        this.priceLines = [];
+        this.markers = [];
+        this.settings = {
+            showFVG: true,
+            showFVGMarkers: false,
+            showClearedFVGs: true,
+            maxFVGsPerType: 50
+        };
+        
+        console.log('⚡ FVG Optimized Renderer 初始化完成 - 高性能版本');
+    }
+    
+    /**
+     * 渲染所有FVG - 高性能版本
+     */
+    render(fvgs, timeframe = 'M15') {
+        // 防止過多console輸出
+        if (fvgs && fvgs.length > 100) {
+            console.warn(`⚠️ FVG數量過多: ${fvgs.length}，限制顯示`);
+            fvgs = fvgs.slice(-50); // 只顯示最新50個
+        }
+        
+        console.group('⚡ FVG Optimized Renderer - 開始高性能渲染');
+        console.log(`📊 收到 ${fvgs ? fvgs.length : 0} 個FVG`);
+        
+        this.clear();
+        
+        if (!fvgs || fvgs.length === 0) {
+            console.log('⚠️ 沒有FVG數據');
+            console.groupEnd();
+            return;
+        }
+        
+        // 分離有效和已清除的FVG
+        const validFVGs = fvgs.filter(fvg => fvg.status === 'valid');
+        const clearedFVGs = fvgs.filter(fvg => fvg.status === 'cleared');
+        
+        console.log(`📈 有效FVG: ${validFVGs.length} 個`);
+        console.log(`📉 已清除FVG: ${clearedFVGs.length} 個`);
+        
+        // 限制數量
+        const limitedValidFVGs = validFVGs.slice(-this.settings.maxFVGsPerType);
+        const limitedClearedFVGs = clearedFVGs.slice(-this.settings.maxFVGsPerType);
+        
+        // 高性能渲染有效FVG
+        if (this.settings.showFVG) {
+            this.renderFVGBoxes(limitedValidFVGs, 'valid', timeframe);
+        }
+        
+        // 高性能渲染已清除FVG
+        if (this.settings.showClearedFVGs) {
+            this.renderFVGBoxes(limitedClearedFVGs, 'cleared', timeframe);
+        }
+        
+        console.log(`✅ 高性能渲染完成: ${this.priceLines.length} 個價格線`);
+        console.groupEnd();
+    }
+    
+    /**
+     * 使用LineSeries的FVG渲染（有限長度）
+     */
+    renderFVGBoxes(fvgs, status, timeframe) {
+        fvgs.forEach((fvg, index) => {
+            this.renderSingleFVGOptimized(fvg, index, status, timeframe);
+        });
+    }
+    
+    /**
+     * 渲染單個FVG - 使用LineSeries實現有限長度
+     */
+    renderSingleFVGOptimized(fvg, index, status, timeframe = 'M15') {
+        // 減少console輸出
+        if (index < 3) { // 只輸出前3個
+            console.log(`⚡ 高性能渲染FVG[${index}]: type=${fvg.type}, status=${status}`);
+        }
+        
+        try {
+            // 確定價格範圍
+            let topPrice, bottomPrice;
+            if (fvg.topPrice !== undefined && fvg.bottomPrice !== undefined) {
+                topPrice = fvg.topPrice;
+                bottomPrice = fvg.bottomPrice;
+            } else if (fvg.startPrice !== undefined && fvg.endPrice !== undefined) {
+                if (fvg.type === 'bullish') {
+                    topPrice = fvg.endPrice;
+                    bottomPrice = fvg.startPrice;
+                } else {
+                    topPrice = fvg.startPrice;
+                    bottomPrice = fvg.endPrice;
+                }
+            } else {
+                console.error('❌ 無法確定價格範圍');
+                return;
+            }
+            
+            // 顏色配置
+            const isCleared = status === 'cleared';
+            let color;
+            
+            if (fvg.type === 'bullish') {
+                color = isCleared 
+                    ? { bg: 'rgba(128, 128, 128, 0.08)', border: 'rgba(128, 128, 128, 0.4)' }
+                    : { bg: 'rgba(0, 214, 143, 0.15)', border: 'rgba(0, 214, 143, 0.5)' };
+            } else {
+                color = isCleared
+                    ? { bg: 'rgba(128, 128, 128, 0.08)', border: 'rgba(128, 128, 128, 0.4)' }
+                    : { bg: 'rgba(255, 61, 113, 0.15)', border: 'rgba(255, 61, 113, 0.5)' };
+            }
+            
+            const lineStyle = isCleared 
+                ? LightweightCharts.LineStyle.Dashed 
+                : LightweightCharts.LineStyle.Solid;
+            
+            // 減少輸出
+            // console.log(`   價格: ${bottomPrice} ~ ${topPrice}`);
+            // console.log(`   顏色: ${color.border}`);
+            
+            // 計算結束時間（起始時間 + 40根K線）
+            let startTime = fvg.startTime || fvg.formationTime;
+            let endTime = fvg.endTime;
+            
+            // 驗證時間戳格式
+            if (!startTime || startTime < 1000000000) {
+                console.error(`❌ FVG時間戳格式錯誤: ${startTime}`);
+                return; // 跳過這個FVG
+            }
+            
+            // 如果沒有endTime，計算40根K線的長度
+            if (!endTime) {
+                // 根據時間框架計算
+                const timeframeMinutes = {
+                    'M1': 1,
+                    'M5': 5,
+                    'M15': 15,
+                    'M30': 30,
+                    'H1': 60,
+                    'H4': 240,
+                    'D1': 1440
+                }[timeframe] || 15;
+                endTime = startTime + (40 * timeframeMinutes * 60); // 40根K線的秒數
+            }
+            
+            // 創建頂部線系列
+            const topLineSeries = this.chart.addSeries(LightweightCharts.LineSeries, {
+                color: color.border,
+                lineWidth: 1,
+                crosshairMarkerVisible: false,
+            });
+            
+            // 設定頂部線數據（有限長度）
+            topLineSeries.setData([
+                { time: startTime, value: topPrice },
+                { time: endTime, value: topPrice }
+            ]);
+            
+            // 創建底部線系列
+            const bottomLineSeries = this.chart.addSeries(LightweightCharts.LineSeries, {
+                color: color.border,
+                lineWidth: 1,
+                crosshairMarkerVisible: false,
+                lastValueVisible: false,
+            });
+            
+            // 設定底部線數據（有限長度）
+            bottomLineSeries.setData([
+                { time: startTime, value: bottomPrice },
+                { time: endTime, value: bottomPrice }
+            ]);
+            
+            // 儲存LineSeries的引用以便清除
+            this.priceLines.push(topLineSeries, bottomLineSeries);
+            
+            if (index < 3) {
+                console.log(`   ⚡ FVG[${index}] 渲染成功`);
+            }
+            
+        } catch (error) {
+            if (index < 5) { // 只輸出前5個錯誤
+                console.error(`❌ FVG[${index}] 渲染失敗:`, error);
+            }
+        }
+    }
+    
+    /**
+     * 清除所有FVG圖形 - 高性能版本
+     */
+    clear() {
+        console.log(`🗑️ 清除 ${this.priceLines.length} 個價格線`);
+        
+        this.priceLines.forEach(series => {
+            try {
+                // 嘗試移除LineSeries
+                if (this.chart.removeSeries) {
+                    this.chart.removeSeries(series);
+                } else {
+                    // 如果是priceLine，使用舊方法
+                    this.candlestickSeries.removePriceLine(series);
+                }
+            } catch (e) {
+                // 忽略錯誤
+            }
+        });
+        
+        this.priceLines = [];
+        
+        // 清除標記
+        if (this.markers.length > 0) {
+            this.candlestickSeries.setMarkers([]);
+            this.markers = [];
+        }
+    }
+    
+    /**
+     * 兼容性方法
+     */
+    clearAll() {
+        this.clear();
+    }
+    
+    toggle() {
+        this.settings.showFVG = !this.settings.showFVG;
+        console.log(`🔄 FVG顯示狀態切換為: ${this.settings.showFVG}`);
+    }
+    
+    setVisible(visible) {
+        this.settings.showFVG = visible;
+        console.log(`👁️ FVG可見性設置為: ${visible}`);
+    }
+    
+    toggleMarkers() {
+        this.settings.showFVGMarkers = !this.settings.showFVGMarkers;
+        console.log(`🏷️ FVG標記顯示狀態切換為: ${this.settings.showFVGMarkers}`);
+    }
+    
+    toggleClearedFVGs() {
+        this.settings.showClearedFVGs = !this.settings.showClearedFVGs;
+        console.log(`📉 已清除FVG顯示狀態切換為: ${this.settings.showClearedFVGs}`);
+    }
+    
+    getStats() {
+        return {
+            totalFVGs: this.priceLines.length / 2, // 每個FVG有2條線
+            showFVG: this.settings.showFVG,
+            showFVGMarkers: this.settings.showFVGMarkers,
+            showClearedFVGs: this.settings.showClearedFVGs,
+            renderMethod: 'createPriceLine (高性能)'
+        };
+    }
+    
+    updateSettings(settings) {
+        Object.assign(this.settings, settings);
+        console.log('⚙️ FVG設置已更新:', this.settings);
+    }
+}
+
+// 導出給全域使用
+if (typeof window !== 'undefined') {
+    window.FVGRendererOptimized = FVGRendererOptimized;
+}

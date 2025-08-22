@@ -77,6 +77,45 @@ class FVGRendererMultiline {
     }
     
     /**
+     * 獲取當前時間框架
+     * @returns {string} 時間框架 (M1, M5, M15, H1, H4, D1)
+     */
+    getCurrentTimeframe() {
+        // 從全域變數或當前活動標籤獲取時間框架
+        if (window.currentTimeframe) {
+            return window.currentTimeframe;
+        }
+        
+        // 回退：從URL或活動標籤獲取
+        const activeTab = document.querySelector('.timeframe-tabs .tab.active');
+        if (activeTab) {
+            return activeTab.textContent.trim();
+        }
+        
+        // 預設為M15
+        console.warn('⚠️ 無法獲取當前時間框架，使用預設M15');
+        return 'M15';
+    }
+    
+    /**
+     * 獲取時間框架對應的分鐘間隔
+     * @param {string} timeframe 時間框架
+     * @returns {number} 分鐘間隔
+     */
+    getTimeframeInterval(timeframe) {
+        const intervals = {
+            'M1': 1,
+            'M5': 5,
+            'M15': 15,
+            'M30': 30,
+            'H1': 60,
+            'H4': 240,
+            'D1': 1440
+        };
+        return intervals[timeframe] || 15; // 預設15分鐘
+    }
+
+    /**
      * 適應性線條數量計算 - 根據FVG大小動態調整線條密度（考慮播放模式）
      * @param {number} fvgGapSize FVG間隔大小
      * @returns {number} 線條數量
@@ -207,9 +246,20 @@ class FVGRendererMultiline {
             return;
         }
         
-        console.log('📊 檢查點3 - FVG數據分類和播放優化');
+        console.log('📊 檢查點3 - FVG數據分類和性能保護');
         let validFVGs = fvgs.filter(fvg => fvg.status === 'valid');
         let clearedFVGs = fvgs.filter(fvg => fvg.status === 'cleared');
+        
+        // 性能保護：限制FVG總數避免堆棧溢出
+        const maxFVGsPerType = 20; // 每種狀態最多20個FVG
+        if (validFVGs.length > maxFVGsPerType) {
+            console.warn(`⚠️ 有效FVG數量過多 (${validFVGs.length})，限制為最近${maxFVGsPerType}個`);
+            validFVGs = validFVGs.slice(-maxFVGsPerType);
+        }
+        if (clearedFVGs.length > maxFVGsPerType) {
+            console.warn(`⚠️ 已清除FVG數量過多 (${clearedFVGs.length})，限制為最近${maxFVGsPerType}個`);
+            clearedFVGs = clearedFVGs.slice(-maxFVGsPerType);
+        }
         
         // 播放模式優化：限制FVG數量
         if (this.playbackOptimization.isPlaybackMode) {
@@ -307,9 +357,17 @@ class FVGRendererMultiline {
     }
     
     /**
-     * 單個FVG渲染 - 創建多條線形成半透明填充效果（帶錯誤隔離）
+     * 單個FVG渲染 - 恢復原始複雜渲染
      */
     renderSingleFVG(fvg, index, isCleared) {
+        // 直接調用原始的複雜渲染邏輯
+        this.renderSingleFVG_Complex(fvg, index, isCleared);
+    }
+
+    /**
+     * 原版單個FVG渲染 - 創建多條線形成半透明填充效果（備用）
+     */
+    renderSingleFVG_Complex(fvg, index, isCleared) {
         console.group(`🔹 渲染單個FVG ${index + 1} ${isCleared ? '(已清除)' : '(有效)'}`);
         
         try {
@@ -367,7 +425,7 @@ class FVGRendererMultiline {
             // 確保endTime在合理範圍內
             if (window.currentData?.data && window.currentData.data.length > 0) {
                 const candleData = window.currentData.data;
-                const lastCandleTime = candleData[candleData.length - 1].time * 1000;
+                const lastCandleTime = candleData[candleData.length - 1].time; // 保持秒級
                 
                 // 如果endTime超出K線範圍，將其限制在K線範圍內
                 if (endTime > lastCandleTime) {
@@ -378,14 +436,14 @@ class FVGRendererMultiline {
                 // 確保endTime >= startTime，但不超出K線範圍
                 if (endTime <= startTime) {
                     // 計算合理的endTime，但不超過最後一根K線
-                    const proposedEndTime = startTime + (40 * 15 * 60 * 1000); // +40個15分鐘K線
+                    const proposedEndTime = startTime + (40 * 15 * 60); // +40個15分鐘K線（秒）
                     endTime = Math.min(proposedEndTime, lastCandleTime);
                     console.warn(`   - endTime邏輯修復: ${endTime} (${new Date(endTime).toLocaleString()})`);
                 }
             } else {
                 // 沒有K線數據時的降級處理
                 if (endTime <= startTime) {
-                    endTime = startTime + (40 * 15 * 60 * 1000); // +40個15分鐘K線
+                    endTime = startTime + (40 * 15 * 60); // +40個15分鐘K線（秒）
                     console.warn(`   - endTime邏輯修復（無K線數據）: ${endTime}`);
                 }
             }
@@ -410,8 +468,8 @@ class FVGRendererMultiline {
                 const candleData = window.currentData.data;
                 const firstCandle = candleData[0];
                 const lastCandle = candleData[candleData.length - 1];
-                const firstCandleTime = firstCandle.time * 1000;
-                const lastCandleTime = lastCandle.time * 1000;
+                const firstCandleTime = firstCandle.time; // 保持秒級
+                const lastCandleTime = lastCandle.time; // 保持秒級
                 
                 console.log(`📊 時間戳對比分析:`);
                 console.log(`   - K線時間範圍: ${new Date(firstCandleTime).toLocaleString()} - ${new Date(lastCandleTime).toLocaleString()}`);
@@ -421,8 +479,8 @@ class FVGRendererMultiline {
                 console.log(`   - FVG結束時間: ${endTime} (轉換為毫秒: ${endTime})`);
                 
                 // 找最接近的K線
-                const startTimeSeconds = Math.floor(startTime / 1000);
-                const endTimeSeconds = Math.floor(endTime / 1000);
+                const startTimeSeconds = startTime; // 已經是秒級
+                const endTimeSeconds = endTime; // 已經是秒級
                 
                 const nearestStartCandle = candleData.find(candle => Math.abs(candle.time - startTimeSeconds) < 60);
                 const nearestEndCandle = candleData.find(candle => Math.abs(candle.time - endTimeSeconds) < 60);
@@ -480,8 +538,8 @@ class FVGRendererMultiline {
                         }
                         
                         const lineData = [
-                            { time: Math.floor(startTime / 1000), value: linePrice },
-                            { time: Math.floor(endTime / 1000), value: linePrice }
+                            { time: startTime, value: linePrice }, // 已經是秒級
+                            { time: endTime, value: linePrice } // 已經是秒級
                         ];
                         
                         fillLineSeries.setData(lineData);
@@ -502,10 +560,10 @@ class FVGRendererMultiline {
             // 2. 創建邊界線 - 明確標示FVG範圍
             try {
                 const topBoundary = this.createBoundaryLine(
-                    topPrice, Math.floor(startTime / 1000), Math.floor(endTime / 1000), borderColor, isCleared
+                    topPrice, startTime, endTime, borderColor, isCleared // 已經是秒級
                 );
                 const bottomBoundary = this.createBoundaryLine(
-                    bottomPrice, Math.floor(startTime / 1000), Math.floor(endTime / 1000), borderColor, isCleared
+                    bottomPrice, startTime, endTime, borderColor, isCleared // 已經是秒級
                 );
                 
                 if (topBoundary && bottomBoundary) {
@@ -632,9 +690,11 @@ class FVGRendererMultiline {
     }
     
     /**
-     * 降級FVG渲染 - 只顯示邊界線
+     * 簡化FVG渲染 - 只顯示4條邊界線（上下左右）
      */
     renderFallbackFVG(fvg, isCleared) {
+        console.log(`🔧 簡化渲染FVG: type=${fvg.type}, startTime=${fvg.startTime}, endTime=${fvg.endTime}`);
+        
         // 適配後端數據格式 - 正確映射價格字段
         let topPrice, bottomPrice;
         
@@ -662,6 +722,8 @@ class FVGRendererMultiline {
             return;
         }
         
+        console.log(`   價格範圍: ${bottomPrice} ~ ${topPrice}`);
+        
         const borderColor = this.getBorderColor(fvg.type, isCleared);
         
         // 修復時間戳格式 - 使用智能修復邏輯
@@ -673,18 +735,78 @@ class FVGRendererMultiline {
             endTime = startTime + (40 * 15 * 60 * 1000); // +40個15分鐘K線
         }
 
-        const topBoundary = this.createBoundaryLine(
-            topPrice, startTime, endTime, borderColor, isCleared
-        );
-        const bottomBoundary = this.createBoundaryLine(
-            bottomPrice, startTime, endTime, borderColor, isCleared
-        );
-        
-        if (topBoundary && bottomBoundary) {
-            this.fvgPrimitives.push(topBoundary, bottomBoundary);
-            console.log('⚠️ 使用降級模式渲染FVG (僅邊界線)');
-        } else {
-            console.error('❌ 降級模式渲染失敗：邊界線創建失敗');
+        console.log(`   時間範圍: ${new Date(startTime).toLocaleString()} ~ ${new Date(endTime).toLocaleString()}`);
+        console.log(`   時間跨度: ${((endTime - startTime) / (1000 * 60)).toFixed(1)}分鐘`);
+
+        try {
+            // 創建4條邊界線：上、下、左、右
+            const lines = [];
+            
+            // 1. 上邊界線（水平）
+            const topLine = this.createBoundaryLine(
+                topPrice, startTime, endTime, borderColor, isCleared
+            );
+            if (topLine) lines.push(topLine);
+            
+            // 2. 下邊界線（水平）  
+            const bottomLine = this.createBoundaryLine(
+                bottomPrice, startTime, endTime, borderColor, isCleared
+            );
+            if (bottomLine) lines.push(bottomLine);
+            
+            // 3. 左邊界線（垂直） - 從底部到頂部
+            const leftLine = this.createVerticalLine(
+                startTime, bottomPrice, topPrice, borderColor, isCleared
+            );
+            if (leftLine) lines.push(leftLine);
+            
+            // 4. 右邊界線（垂直） - 從底部到頂部
+            const rightLine = this.createVerticalLine(
+                endTime, bottomPrice, topPrice, borderColor, isCleared
+            );
+            if (rightLine) lines.push(rightLine);
+            
+            if (lines.length === 4) {
+                this.fvgPrimitives.push(...lines);
+                console.log('✅ 簡化渲染FVG完成 (4條邊界線)');
+            } else {
+                console.warn(`⚠️ 部分邊界線創建失敗，成功: ${lines.length}/4`);
+                this.fvgPrimitives.push(...lines); // 推送成功創建的線條
+            }
+            
+        } catch (error) {
+            console.error('❌ 簡化渲染FVG失敗:', error);
+        }
+    }
+    
+    /**
+     * 創建垂直邊界線
+     */
+    createVerticalLine(time, bottomPrice, topPrice, color, isCleared) {
+        try {
+            const lineSeries = this.createIsolatedLineSeries({
+                color: color,
+                lineWidth: 1,
+                lineStyle: isCleared ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
+            });
+            
+            if (!lineSeries) {
+                console.error('❌ 垂直邊界線系列創建失敗');
+                return null;
+            }
+            
+            // 創建垂直線：在同一時間點放置兩個價格點
+            const lineData = [
+                { time: time, value: bottomPrice },
+                { time: time, value: topPrice }
+            ];
+            
+            lineSeries.setData(lineData);
+            return lineSeries;
+            
+        } catch (error) {
+            console.error('❌ 創建垂直線失敗:', error);
+            return null;
         }
     }
     
@@ -1148,9 +1270,9 @@ class FVGRendererMultiline {
             }
             
             // 3. 合理範圍檢查（過去5年到未來1年）
-            const currentTime = Date.now();
-            const fiveYearsAgo = currentTime - (5 * 365 * 24 * 60 * 60 * 1000);
-            const oneYearLater = currentTime + (365 * 24 * 60 * 60 * 1000);
+            const currentTime = Math.floor(Date.now() / 1000); // 當前時間（秒）
+            const fiveYearsAgo = currentTime - (5 * 365 * 24 * 60 * 60); // 5年（秒）
+            const oneYearLater = currentTime + (365 * 24 * 60 * 60); // 1年（秒）
             
             if (startTime < fiveYearsAgo || startTime > oneYearLater) {
                 return {
@@ -1169,13 +1291,13 @@ class FVGRendererMultiline {
             // 4. K線數據範圍對齊檢查
             if (window.currentData?.data && window.currentData.data.length > 0) {
                 const candleData = window.currentData.data;
-                const firstCandleTime = candleData[0].time * 1000; // 轉換為毫秒
-                const lastCandleTime = candleData[candleData.length - 1].time * 1000;
+                const firstCandleTime = candleData[0].time; // 保持秒級
+                const lastCandleTime = candleData[candleData.length - 1].time; // 保持秒級
                 
                 // FVG時間戳應該在K線數據範圍的合理擴展內
-                const timeBuffer = 24 * 60 * 60 * 1000; // 1天緩衝
+                const timeBuffer = 24 * 60 * 60; // 1天緩衝（秒）
                 const minAllowedTime = firstCandleTime - timeBuffer;
-                const maxAllowedTime = lastCandleTime + (40 * 24 * 60 * 60 * 1000); // 40天擴展
+                const maxAllowedTime = lastCandleTime + (40 * 24 * 60 * 60); // 40天擴展（秒）
                 
                 if (startTime < minAllowedTime || startTime > maxAllowedTime) {
                     return {
@@ -1194,7 +1316,7 @@ class FVGRendererMultiline {
             
             // 5. 時間跨度合理性檢查
             const timeSpan = endTime - startTime;
-            const maxReasonableSpan = 60 * 24 * 60 * 60 * 1000; // 60天
+            const maxReasonableSpan = 60 * 24 * 60 * 60; // 60天（秒）
             
             if (timeSpan > maxReasonableSpan) {
                 return {
@@ -1787,11 +1909,9 @@ class FVGRendererMultiline {
             const maxTime = new Date('2030-01-01').getTime();
             
             // 處理可能的秒轉毫秒
+            // 直接使用秒級時間戳，不做任何轉換
             let startTime = fvg.startTime;
             let endTime = fvg.endTime;
-            
-            if (startTime < 1000000000000) startTime *= 1000;
-            if (endTime < 1000000000000) endTime *= 1000;
             
             if (startTime < minTime || startTime > maxTime) {
                 return {
@@ -1817,7 +1937,7 @@ class FVGRendererMultiline {
             
             // 檢查時間跨度
             const timeSpan = endTime - startTime;
-            const maxReasonableSpan = 60 * 24 * 60 * 60 * 1000; // 60天
+            const maxReasonableSpan = 60 * 24 * 60 * 60; // 60天（秒）
             
             if (timeSpan > maxReasonableSpan) {
                 return {
@@ -1857,8 +1977,8 @@ class FVGRendererMultiline {
             let endTime = fvg.endTime;
             
             // 處理時間戳格式
-            if (startTime < 1000000000000) startTime *= 1000;
-            if (endTime < 1000000000000) endTime *= 1000;
+            // 直接使用秒級時間戳，不做任何轉換
+            // startTime 和 endTime 應該已經是秒級時間戳
             
             // 檢查是否在K線數據範圍內（允許更大的合理擴展）
             const timeBuffer = 30 * 24 * 60 * 60 * 1000; // 30天緩衝
@@ -1935,7 +2055,7 @@ class FVGRendererMultiline {
             if (window.currentData?.data && window.currentData.data.length > 0) {
                 const candleData = window.currentData.data;
                 const firstCandleTime = candleData[0].time * 1000;
-                const lastCandleTime = candleData[candleData.length - 1].time * 1000;
+                const lastCandleTime = candleData[candleData.length - 1].time; // 保持秒級
                 
                 // 改進時間戳映射邏輯 - 基於整數部分作為索引
                 const candleCount = candleData.length;
